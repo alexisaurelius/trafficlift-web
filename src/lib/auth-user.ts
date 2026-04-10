@@ -17,14 +17,57 @@ export async function requireUserRecord() {
   const firstName = clerkUser.firstName ?? undefined;
   const lastName = clerkUser.lastName ?? undefined;
 
-  const user = await prisma.user.upsert({
+  const existingByClerkId = await prisma.user.findUnique({
     where: { clerkId: userId },
-    update: {
-      email,
-      firstName,
-      lastName,
-    },
-    create: {
+    include: { subscription: true },
+  });
+  if (existingByClerkId) {
+    return prisma.user.update({
+      where: { id: existingByClerkId.id },
+      data: {
+        email,
+        firstName,
+        lastName,
+      },
+      include: { subscription: true },
+    });
+  }
+
+  const existingByEmail = await prisma.user.findUnique({
+    where: { email },
+    include: { subscription: true },
+  });
+  if (existingByEmail) {
+    const user = await prisma.user.update({
+      where: { id: existingByEmail.id },
+      data: {
+        clerkId: userId,
+        email,
+        firstName,
+        lastName,
+      },
+      include: { subscription: true },
+    });
+
+    if (!user.subscription) {
+      await prisma.subscription.create({
+        data: {
+          userId: user.id,
+          plan: PlanType.NONE,
+          status: SubscriptionStatus.INACTIVE,
+        },
+      });
+      return prisma.user.findUniqueOrThrow({
+        where: { id: user.id },
+        include: { subscription: true },
+      });
+    }
+
+    return user;
+  }
+
+  const user = await prisma.user.create({
+    data: {
       clerkId: userId,
       email,
       firstName,
