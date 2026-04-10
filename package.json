@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "worker:audit": "tsx src/workers/audit-worker.ts",
+    "postinstall": "prisma generate",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
