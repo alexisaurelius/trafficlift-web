@@ -2,7 +2,7 @@ import { CreditEventType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 function isDevBillingBypassEnabled() {
-  return process.env.NODE_ENV !== "production" && process.env.DEV_BILLING_BYPASS !== "false";
+  return process.env.DEV_BILLING_BYPASS === "true";
 }
 
 export async function canConsumeCredit(userId: string) {
