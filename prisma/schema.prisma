@@ -1,0 +1,121 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PlanType {
+  NONE
+  ONE_TIME
+  STANDARD
+  PRO
+}
+
+enum SubscriptionStatus {
+  INACTIVE
+  ACTIVE
+  CANCELED
+  PAST_DUE
+}
+
+enum AuditStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum CreditEventType {
+  MONTHLY_ALLOCATION
+  ONE_TIME_PURCHASE
+  AUDIT_CONSUMED
+  MANUAL_ADJUSTMENT
+  ROLLOVER_EXPIRED
+}
+
+model User {
+  id                String           @id @default(cuid())
+  clerkId           String           @unique
+  email             String           @unique
+  firstName         String?
+  lastName          String?
+  auditsUsedInCycle Int              @default(0)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  subscription      Subscription?
+  creditLedger      CreditLedger[]
+  audits            Audit[]
+}
+
+model Subscription {
+  id                      String             @id @default(cuid())
+  userId                  String             @unique
+  user                    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                    PlanType           @default(NONE)
+  status                  SubscriptionStatus @default(INACTIVE)
+  stripeCustomerId        String?            @unique
+  stripeSubscriptionId    String?            @unique
+  stripeOneTimePaymentId  String?            @unique
+  currentPeriodStart      DateTime?
+  currentPeriodEnd        DateTime?
+  monthlyCreditAllowance  Int                @default(0)
+  availableCredits        Int                @default(0)
+  cancelAtPeriodEnd       Boolean            @default(false)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+}
+
+model CreditLedger {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType   CreditEventType
+  delta       Int
+  balance     Int
+  reason      String?
+  referenceId String?
+  createdAt   DateTime        @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Audit {
+  id             String      @id @default(cuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetUrl      String
+  targetKeyword  String
+  score          Int?
+  status         AuditStatus @default(QUEUED)
+  summary        String?
+  reportMarkdown String?
+  errorMessage   String?
+  completedAt    DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  checks         AuditCheck[]
+
+  @@index([userId, createdAt])
+}
+
+model AuditCheck {
+  id            String   @id @default(cuid())
+  auditId       String
+  audit         Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  key           String
+  title         String
+  status        String
+  priority      String
+  details       String?
+  recommendation String?
+  createdAt     DateTime @default(now())
+
+  @@index([auditId])
+}

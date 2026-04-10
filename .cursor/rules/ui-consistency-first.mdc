@@ -1,0 +1,24 @@
+---
+description: Enforce UI size consistency and existing design-system scale
+alwaysApply: true
+---
+
+# UI Consistency First (Mandatory)
+
+Before any UI edit:
+
+1. Inspect nearby existing sections and reuse their typography, spacing, and button scale.
+2. Treat screenshot dimensions as reference for structure/style only, not literal pixel scaling.
+3. Do not introduce larger heading, body, button, or card sizes than adjacent sections unless explicitly requested.
+4. Prefer existing tokens/classes over new one-off size values.
+
+When implementing visual changes:
+
+- Keep H2, card titles, body text, and button sizes aligned with current page baseline.
+- If a change risks upsizing elements, choose the smaller consistent option.
+- Match layout and styling details from screenshots while preserving established scale.
+
+Regression guard:
+
+- After edits, verify affected section still matches the same size hierarchy as neighboring sections.
+- If user asks to reduce size, apply immediately and keep that scale for subsequent edits.
