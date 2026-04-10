@@ -12,11 +12,13 @@ export function OrderAuditForm({ onCreated }: OrderAuditFormProps) {
   const [targetKeyword, setTargetKeyword] = useState("");
   const [isSubmitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [needsCredits, setNeedsCredits] = useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
     setMessage(null);
+    setNeedsCredits(false);
 
     try {
       const response = await fetch("/api/audits", {
@@ -26,7 +28,12 @@ export function OrderAuditForm({ onCreated }: OrderAuditFormProps) {
       });
       const data = await response.json();
       if (!response.ok) {
-        setMessage(data.error ?? "Unable to create audit.");
+        if (response.status === 402) {
+          setNeedsCredits(true);
+          setMessage("You do not have enough credits to run this audit.");
+        } else {
+          setMessage(data.error ?? "Unable to create audit.");
+        }
       } else {
         setMessage("Audit queued. Live progress will update automatically.");
         if (data.auditId) {
@@ -97,7 +104,16 @@ export function OrderAuditForm({ onCreated }: OrderAuditFormProps) {
           View sample report →
         </Link>
       </div>
-      {message ? <p className="rounded-xl bg-[var(--surface-container-low)] px-3 py-2 text-sm text-[var(--on-surface)]/80">{message}</p> : null}
+      {message ? (
+        <div className="rounded-xl bg-[var(--surface-container-low)] px-3 py-2 text-sm text-[var(--on-surface)]/80">
+          <p>{message}</p>
+          {needsCredits ? (
+            <Link href="/dashboard/billing" className="mt-2 inline-flex font-semibold text-[var(--primary)]">
+              Buy credits in Billing →
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
     </form>
   );
 }
