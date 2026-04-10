@@ -385,7 +385,6 @@ export default async function AuditDetailsPage({
                           {buildPlainWhy(item, audit.targetKeyword)}
                         </p>
                         <p className="mt-1 text-sm text-[var(--on-surface)]/70">
-                          <span className="font-semibold">Current value:</span>{" "}
                           {item.details ?? "No current value captured for this check."}
                         </p>
                       </li>

@@ -181,9 +181,7 @@ export function AuditTopicPanel({ checks }: { checks: CheckItem[] }) {
                 <p className="mt-1 text-sm text-[var(--on-surface)]/74">
                   <span className="font-semibold">Fix:</span> {item.recommendation ?? "No recommendation provided."}
                 </p>
-                <p className="mt-1 text-sm text-[var(--on-surface)]/70">
-                  <span className="font-semibold">Current value:</span> {item.details ?? "No details captured."}
-                </p>
+                <p className="mt-1 text-sm text-[var(--on-surface)]/70">{item.details ?? "No details captured."}</p>
               </div>
             ))
           )}
