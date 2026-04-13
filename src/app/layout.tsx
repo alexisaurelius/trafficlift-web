@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Inter, Manrope } from "next/font/google";
+import { HashLinkSmoothScroll } from "@/components/hash-link-smooth-scroll";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -14,7 +15,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "TrafficLift - Quick On-demand SEO Audits",
+  title: "TrafficLift - AI SEO Audits On Demand",
   description:
     "Order AI-assisted SEO audits on demand. Track issues, prioritize fixes, and improve rankings with actionable reports.",
 };
@@ -33,6 +34,7 @@ export default function RootLayout({
           signInForceRedirectUrl="/dashboard"
           signUpForceRedirectUrl="/dashboard"
         >
+          <HashLinkSmoothScroll />
           {children}
         </ClerkProvider>
       </body>

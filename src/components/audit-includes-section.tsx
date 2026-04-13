@@ -57,7 +57,7 @@ export function AuditIncludesSection() {
       <div className="absolute right-0 top-11 hidden h-1 w-20 rounded-full bg-[#22c55e] md:block" />
 
       <h2 className="font-manrope text-4xl font-extrabold tracking-tight text-[var(--primary)]">
-        What Your SEO Audit Includes
+        What Your AI SEO Audit Includes
       </h2>
       <p className="mt-3 max-w-3xl text-[16px] leading-relaxed text-[var(--on-surface)]/72">
         A comprehensive deep-dive into every factor that influences your organic search performance.

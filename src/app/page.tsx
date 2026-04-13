@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
@@ -11,6 +12,13 @@ import {
   GaugeCircle,
   SearchX,
 } from "lucide-react";
+
+export const metadata: Metadata = {
+  title: "TrafficLift - AI SEO Audits On Demand",
+  alternates: {
+    canonical: "https://www.trafficlift.ai",
+  },
+};
 
 export default async function Home() {
   const { userId } = await auth();
@@ -89,13 +97,14 @@ export default async function Home() {
             <p className="mx-auto inline-flex items-center gap-2 rounded-full bg-[#bde9cb] px-4 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#186c39]">
               <span className="inline-block h-2 w-2 rounded-full bg-[#1bb65f]" /> AI-Powered Insights + Human Expertise
             </p>
-            <h1 className="font-manrope relative mx-auto mt-8 max-w-3xl text-4xl font-extrabold leading-[1.06] tracking-tight text-[var(--primary)] md:text-6xl">
+            <h1 className="sr-only">TrafficLift - AI SEO Audits On Demand</h1>
+            <h2 className="font-manrope relative mx-auto mt-8 max-w-3xl text-4xl font-extrabold leading-[1.06] tracking-tight text-[var(--primary)] md:text-6xl">
               Find the Issues That
               <br />
               Are Costing You
               <br />
               <span className="text-[#25c468]">Traffic and Revenue</span>
-            </h1>
+            </h2>
           <p className="mx-auto mt-5 max-w-xl text-base leading-snug text-[var(--on-surface)]/70 md:text-xl">
             Get a Clear SEO Fix List under 10 Minutes. Rank in Google and AI agents like ChatGPT, Gemini, and Claude.
             </p>
