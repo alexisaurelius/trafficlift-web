@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import type { AuditType } from "@/lib/audit-mode";
 
 type OrderAuditFormProps = {
   onCreated?: (auditId: string) => void;
+  auditType?: AuditType;
 };
 
-export function OrderAuditForm({ onCreated }: OrderAuditFormProps) {
+export function OrderAuditForm({ onCreated, auditType = "seo" }: OrderAuditFormProps) {
   const [targetUrl, setTargetUrl] = useState("");
   const [targetKeyword, setTargetKeyword] = useState("");
   const [isSubmitting, setSubmitting] = useState(false);
@@ -24,7 +26,11 @@ export function OrderAuditForm({ onCreated }: OrderAuditFormProps) {
       const response = await fetch("/api/audits", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targetUrl, targetKeyword }),
+        body: JSON.stringify({
+          targetUrl,
+          targetKeyword: auditType === "seo" ? targetKeyword : "",
+          auditType,
+        }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -40,7 +46,9 @@ export function OrderAuditForm({ onCreated }: OrderAuditFormProps) {
           onCreated?.(data.auditId);
         }
         setTargetUrl("");
-        setTargetKeyword("");
+        if (auditType === "seo") {
+          setTargetKeyword("");
+        }
       }
     } catch {
       setMessage("Request failed. Please try again.");
@@ -55,8 +63,12 @@ export function OrderAuditForm({ onCreated }: OrderAuditFormProps) {
       className="flex h-full flex-col gap-3.5 rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-5 shadow-[0_12px_40px_rgba(0,22,57,0.06)]"
     >
       <div>
-        <h2 className="font-manrope text-xl font-extrabold">Order New Audit</h2>
-        <p className="mt-1 text-sm text-[var(--on-surface)]/66">Submit a URL and target keyword. We handle the analysis and review.</p>
+        <h2 className="font-manrope text-xl font-extrabold">Order New {auditType === "cro" ? "CRO" : "SEO"} Audit</h2>
+        <p className="mt-1 text-sm text-[var(--on-surface)]/66">
+          {auditType === "seo"
+            ? "Submit a URL and up to 3 target keywords (comma-separated). We handle the analysis and review."
+            : "Submit a page URL. We run a full CRO checklist and return prioritized conversion recommendations."}
+        </p>
       </div>
       <div className="space-y-1.5">
         <label className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Page URL</label>
@@ -69,19 +81,24 @@ export function OrderAuditForm({ onCreated }: OrderAuditFormProps) {
           onChange={(e) => setTargetUrl(e.target.value)}
         />
       </div>
-      <div className="space-y-1.5">
-        <label className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">
-          Target Keyword
-        </label>
-        <input
-          type="text"
-          required
-          placeholder="openclaw vps hosting"
-          className="w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface-container-low)] px-4 py-3 text-sm outline-none transition placeholder:text-[var(--on-surface)]/42 focus:border-[color:color-mix(in_oklab,var(--primary)_30%,white)] focus:bg-[var(--surface-container-lowest)] focus:ring-2 focus:ring-[color:color-mix(in_oklab,var(--primary)_24%,white)]"
-          value={targetKeyword}
-          onChange={(e) => setTargetKeyword(e.target.value)}
-        />
-      </div>
+      {auditType === "seo" ? (
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">
+            Target Keyword(s)
+          </label>
+          <input
+            type="text"
+            required
+            placeholder="e.g. personal injury lawyer chicago, chicago personal injury lawyer"
+            className="w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface-container-low)] px-4 py-3 text-sm outline-none transition placeholder:text-[var(--on-surface)]/42 focus:border-[color:color-mix(in_oklab,var(--primary)_30%,white)] focus:bg-[var(--surface-container-lowest)] focus:ring-2 focus:ring-[color:color-mix(in_oklab,var(--primary)_24%,white)]"
+            value={targetKeyword}
+            onChange={(e) => setTargetKeyword(e.target.value)}
+          />
+          <p className="text-xs text-[var(--on-surface)]/60">
+            Add up to 3 interchangeable keyword variants you want to rank for
+          </p>
+        </div>
+      ) : null}
       <button
         disabled={isSubmitting}
         type="submit"
@@ -92,7 +109,7 @@ export function OrderAuditForm({ onCreated }: OrderAuditFormProps) {
       <div className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_8%,white)] bg-[var(--surface)] px-3.5 py-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">What happens next</p>
         <p className="mt-1 text-sm text-[var(--on-surface)]">
-          Automated checks run immediately, then your report is usually ready in under 24 hours with prioritized actions.
+          Automated checks run immediately, then your report is usually ready in under 10 minutes with prioritized actions.
         </p>
       </div>
       <div className="mt-auto rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_8%,white)] bg-[var(--surface)] px-3.5 py-3">

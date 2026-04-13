@@ -5,21 +5,32 @@ import { requireUserRecord } from "@/lib/auth-user";
 import { consumeCredit, canConsumeCredit } from "@/lib/credits";
 import { runAuditJob } from "@/lib/audit-engine";
 import { enqueueAuditJob, isAuditQueueConfigured } from "@/lib/audit-queue";
+import { formatKeywordCandidatesAsQuotedList, parseKeywordCandidates } from "@/lib/keyword-match";
+import { CRO_AUDIT_KEYWORD } from "@/lib/audit-mode";
 import { prisma } from "@/lib/prisma";
 
 const createAuditSchema = z.object({
   targetUrl: z.string().url(),
-  targetKeyword: z.string().min(2).max(120),
+  targetKeyword: z.string().max(360).optional().default(""),
+  auditType: z.enum(["seo", "cro"]).optional().default("seo"),
 });
 const MAX_ACTIVE_AUDITS_PER_USER = Number(process.env.MAX_ACTIVE_AUDITS_PER_USER ?? 8);
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const user = await requireUserRecord();
+    const searchParams = new URL(req.url).searchParams;
+    const typeParam = searchParams.get("type");
+    const where =
+      typeParam === "cro"
+        ? { userId: user.id, targetKeyword: CRO_AUDIT_KEYWORD }
+        : typeParam === "seo"
+          ? { userId: user.id, targetKeyword: { not: CRO_AUDIT_KEYWORD } }
+          : { userId: user.id };
     const audits = await prisma.audit.findMany({
-      where: { userId: user.id },
+      where,
       orderBy: { createdAt: "desc" },
-      take: 25,
+      take: 10,
       select: {
         id: true,
         targetUrl: true,
@@ -47,6 +58,23 @@ export async function POST(req: Request) {
         { error: "Invalid request", details: parsed.error.flatten() },
         { status: 400 },
       );
+    }
+
+    const keywordCandidates = parseKeywordCandidates(parsed.data.targetKeyword);
+    const isCroAudit = parsed.data.auditType === "cro";
+    if (!isCroAudit) {
+      if (keywordCandidates.length === 0 || keywordCandidates.length > 3) {
+        return NextResponse.json(
+          { error: "Provide 1 to 3 target keywords separated by commas." },
+          { status: 400 },
+        );
+      }
+      if (keywordCandidates.some((keyword) => keyword.length < 2 || keyword.length > 120)) {
+        return NextResponse.json(
+          { error: "Each target keyword must be between 2 and 120 characters." },
+          { status: 400 },
+        );
+      }
     }
 
     const hasCredit = await canConsumeCredit(user.id);
@@ -78,7 +106,7 @@ export async function POST(req: Request) {
       data: {
         userId: user.id,
         targetUrl: parsed.data.targetUrl,
-        targetKeyword: parsed.data.targetKeyword,
+        targetKeyword: isCroAudit ? CRO_AUDIT_KEYWORD : formatKeywordCandidatesAsQuotedList(keywordCandidates),
         status: AuditStatus.QUEUED,
       },
     });

@@ -2,6 +2,14 @@ import { AuditStatus } from "@prisma/client";
 import { load } from "cheerio";
 import { prisma } from "@/lib/prisma";
 import { AUDIT_CHECKLIST } from "@/lib/seo-checklist";
+import { CRO_AUDIT_CHECKLIST } from "@/lib/cro-checklist";
+import { isCroAuditKeyword } from "@/lib/audit-mode";
+import {
+  countExactKeywordMatches,
+  formatKeywordCandidatesAsQuotedList,
+  matchesAnyKeywordEquivalent,
+  parseKeywordCandidates,
+} from "@/lib/keyword-match";
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -21,19 +29,118 @@ const PRIORITY_WEIGHT = {
   low: 1,
 } as const;
 
-async function fetchHtml(url: string) {
-  const response = await fetch(url, {
-    headers: {
-      "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)",
-    },
-    cache: "no-store",
-  });
+type RedirectProbe = {
+  requestedUrl: string;
+  finalUrl: string;
+  finalStatus: number | null;
+  hops: number;
+  usedTemporaryRedirect: boolean;
+  loopDetected: boolean;
+  chain: string[];
+  xRobotsTag: string;
+  html: string | null;
+};
 
-  if (!response.ok) {
-    throw new Error(`Unable to fetch page (${response.status})`);
+type SafeBrowsingResult = {
+  configured: boolean;
+  error: string | null;
+  flagged: boolean;
+  threatTypes: string[];
+};
+
+type AssetHeaderProbe = {
+  url: string;
+  status: number | null;
+  cacheControl: string;
+  contentEncoding: string;
+  contentType: string;
+};
+
+function redirectStatus(status: number) {
+  return status >= 300 && status < 400;
+}
+
+async function fetchWithRedirectTrace(
+  url: string,
+  options?: { includeBody?: boolean; maxRedirects?: number },
+): Promise<RedirectProbe> {
+  const includeBody = options?.includeBody ?? false;
+  const maxRedirects = options?.maxRedirects ?? 6;
+  const chain = [url];
+  const visited = new Set<string>([url]);
+  let current = url;
+  let usedTemporaryRedirect = false;
+
+  for (let i = 0; i <= maxRedirects; i += 1) {
+    const response = await fetch(current, {
+      headers: { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" },
+      cache: "no-store",
+      redirect: "manual",
+    });
+    const location = response.headers.get("location");
+    const isRedirect = redirectStatus(response.status) && Boolean(location);
+
+    if (!isRedirect || !location) {
+      return {
+        requestedUrl: url,
+        finalUrl: current,
+        finalStatus: response.status,
+        hops: chain.length - 1,
+        usedTemporaryRedirect,
+        loopDetected: false,
+        chain,
+        xRobotsTag: response.headers.get("x-robots-tag") ?? "",
+        html: includeBody ? await response.text() : null,
+      };
+    }
+
+    usedTemporaryRedirect ||= [302, 303, 307].includes(response.status);
+    const nextUrl = safeUrl(location, current)?.toString();
+    if (!nextUrl) {
+      return {
+        requestedUrl: url,
+        finalUrl: current,
+        finalStatus: response.status,
+        hops: chain.length - 1,
+        usedTemporaryRedirect,
+        loopDetected: false,
+        chain,
+        xRobotsTag: response.headers.get("x-robots-tag") ?? "",
+        html: null,
+      };
+    }
+
+    if (visited.has(nextUrl)) {
+      chain.push(nextUrl);
+      return {
+        requestedUrl: url,
+        finalUrl: nextUrl,
+        finalStatus: response.status,
+        hops: chain.length - 1,
+        usedTemporaryRedirect,
+        loopDetected: true,
+        chain,
+        xRobotsTag: response.headers.get("x-robots-tag") ?? "",
+        html: null,
+      };
+    }
+
+    visited.add(nextUrl);
+    chain.push(nextUrl);
+    current = nextUrl;
   }
 
-  return response.text();
+  return {
+    requestedUrl: url,
+    finalUrl: current,
+    finalStatus: null,
+    hops: chain.length - 1,
+    usedTemporaryRedirect,
+    loopDetected: false,
+    chain,
+    xRobotsTag: "",
+    html: null,
+  };
 }
 
 async function fetchText(url: string) {
@@ -43,6 +150,68 @@ async function fetchText(url: string) {
   });
   if (!response.ok) return null;
   return response.text();
+}
+
+function hasStrongCacheControl(cacheControlHeader: string) {
+  const value = cacheControlHeader.toLowerCase();
+  if (!value) return false;
+  if (value.includes("immutable")) return true;
+  const match = value.match(/max-age=(\d+)/i);
+  if (!match) return false;
+  return Number(match[1]) >= 86400;
+}
+
+function isLikelyCompressibleAsset(url: string, contentTypeHeader: string) {
+  const contentType = contentTypeHeader.toLowerCase();
+  if (
+    /(javascript|ecmascript|css|json|xml|text\/|svg|html)/i.test(contentType) &&
+    !/image\/(png|jpe?g|gif|webp|avif)/i.test(contentType)
+  ) {
+    return true;
+  }
+  return /\.(js|mjs|cjs|css|json|xml|svg)(\?|$)/i.test(url);
+}
+
+async function fetchAssetHeaders(url: string): Promise<AssetHeaderProbe> {
+  const userAgentHeader = { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" };
+  try {
+    const headResponse = await fetch(url, {
+      method: "HEAD",
+      headers: userAgentHeader,
+      cache: "no-store",
+    });
+
+    if (headResponse.ok || ![405, 501].includes(headResponse.status)) {
+      return {
+        url,
+        status: headResponse.status,
+        cacheControl: headResponse.headers.get("cache-control") ?? "",
+        contentEncoding: headResponse.headers.get("content-encoding") ?? "",
+        contentType: headResponse.headers.get("content-type") ?? "",
+      };
+    }
+
+    const fallbackResponse = await fetch(url, {
+      method: "GET",
+      headers: { ...userAgentHeader, range: "bytes=0-0" },
+      cache: "no-store",
+    });
+    return {
+      url,
+      status: fallbackResponse.status,
+      cacheControl: fallbackResponse.headers.get("cache-control") ?? "",
+      contentEncoding: fallbackResponse.headers.get("content-encoding") ?? "",
+      contentType: fallbackResponse.headers.get("content-type") ?? "",
+    };
+  } catch {
+    return {
+      url,
+      status: null,
+      cacheControl: "",
+      contentEncoding: "",
+      contentType: "",
+    };
+  }
 }
 
 function safeUrl(value: string, base: string) {
@@ -100,18 +269,106 @@ function normalizePageUrlForComparison(url: URL) {
   return normalizeUrl(`${url.origin}${url.pathname}`);
 }
 
-function tokenizeKeyword(keyword: string) {
-  return keyword
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .map((t) => t.trim())
-    .filter(Boolean);
+function formatList(values: string[], fallback = "none", limit = 5) {
+  if (values.length === 0) return fallback;
+  const shown = values.slice(0, limit);
+  const remainder = values.length - shown.length;
+  return remainder > 0 ? `${shown.join(", ")} (+${remainder} more)` : shown.join(", ");
 }
 
-function statusFromCheckScore(checkScore: number): "pass" | "warning" | "fail" {
-  if (checkScore >= 80) return "pass";
-  if (checkScore >= 55) return "warning";
-  return "fail";
+function yesNo(value: boolean) {
+  return value ? "yes" : "no";
+}
+
+function displayValue(value: string) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return "(empty)";
+  return normalized;
+}
+
+function hasNoindexDirective(value: string) {
+  return /\bnoindex\b/i.test(value);
+}
+
+function parseMetaRobots($: ReturnType<typeof load>) {
+  return $('meta[name="robots"]').attr("content")?.trim() ?? "";
+}
+
+function parseTitleDescription(html: string) {
+  const $ = load(html);
+  return {
+    title: $("title").text().trim(),
+    description: $('meta[name="description"]').attr("content")?.trim() ?? "",
+    metaRobots: parseMetaRobots($),
+  };
+}
+
+function normalizeForDuplicate(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function formatDuplicateSamples(duplicates: Array<{ value: string; urls: string[] }>) {
+  if (duplicates.length === 0) return "none";
+  return duplicates
+    .slice(0, 3)
+    .map((dup) => `"${displayValue(dup.value)}" on ${formatList(dup.urls, "none", 2)}`)
+    .join(" | ");
+}
+
+async function checkSafeBrowsing(targetUrl: string): Promise<SafeBrowsingResult> {
+  const apiKey = process.env.GOOGLE_SAFE_BROWSING_API_KEY;
+  if (!apiKey) {
+    return { configured: false, error: null, flagged: false, threatTypes: [] };
+  }
+
+  try {
+    const response = await fetch(
+      `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client: { clientId: "trafficlift", clientVersion: "1.0.0" },
+          threatInfo: {
+            threatTypes: [
+              "MALWARE",
+              "SOCIAL_ENGINEERING",
+              "UNWANTED_SOFTWARE",
+              "POTENTIALLY_HARMFUL_APPLICATION",
+            ],
+            platformTypes: ["ANY_PLATFORM"],
+            threatEntryTypes: ["URL"],
+            threatEntries: [{ url: targetUrl }],
+          },
+        }),
+      },
+    );
+    if (!response.ok) {
+      return {
+        configured: true,
+        error: `API error (${response.status})`,
+        flagged: false,
+        threatTypes: [],
+      };
+    }
+
+    const data = (await response.json()) as { matches?: Array<{ threatType?: string }> };
+    const matches = data.matches ?? [];
+    const threatTypes = [...new Set(matches.map((m) => m.threatType).filter((v): v is string => Boolean(v)))];
+    return {
+      configured: true,
+      error: null,
+      flagged: matches.length > 0,
+      threatTypes,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return { configured: true, error: message, flagged: false, threatTypes: [] };
+  }
+}
+
+function statusFromCheckScore(checkScore: number): "pass" | "fail" {
+  return checkScore >= 80 ? "pass" : "fail";
 }
 
 async function getPageSpeedMetrics(targetUrl: string) {
@@ -157,6 +414,10 @@ function formatReport(
   score: number,
   checks: Array<{ title: string; priority: string; status: string; details: string; recommendation: string }>,
 ) {
+  const reportKeywords = parseKeywordCandidates(keyword);
+  const reportKeywordList = formatKeywordCandidatesAsQuotedList(
+    reportKeywords.length > 0 ? reportKeywords : [keyword],
+  );
   const byPriority = {
     critical: checks.filter((c) => c.priority === "critical" && c.status !== "pass"),
     high: checks.filter((c) => c.priority === "high" && c.status !== "pass"),
@@ -168,7 +429,7 @@ function formatReport(
   lines.push(`# SEO Audit Report`);
   lines.push(``);
   lines.push(`- URL: ${targetUrl}`);
-  lines.push(`- Target keyword: "${keyword}"`);
+  lines.push(`- Target keyword(s): ${reportKeywordList}`);
   lines.push(`- Score: ${score}/100`);
   lines.push(``);
   lines.push(`## Executive Summary`);
@@ -189,23 +450,252 @@ function formatReport(
   lines.push(``);
   lines.push(`## Prioritized Action Plan`);
   lines.push(``);
-  lines.push(`### Fix Immediately (Critical)`);
+  lines.push(`### Critical (Action Required Now)`);
   if (byPriority.critical.length === 0) lines.push(`- No critical issues found.`);
   byPriority.critical.forEach((check) => lines.push(`- ${check.title}: ${check.recommendation}`));
   lines.push(``);
-  lines.push(`### Fix Soon (High Impact)`);
+  lines.push(`### High Impact (Action Required Soon)`);
   if (byPriority.high.length === 0) lines.push(`- No high-impact issues found.`);
   byPriority.high.forEach((check) => lines.push(`- ${check.title}: ${check.recommendation}`));
   lines.push(``);
-  lines.push(`### Fix Next (Medium Impact)`);
+  lines.push(`### Medium Impact (Address When Possible)`);
   if (byPriority.medium.length === 0) lines.push(`- No medium-impact issues found.`);
   byPriority.medium.forEach((check) => lines.push(`- ${check.title}: ${check.recommendation}`));
   lines.push(``);
-  lines.push(`### Long-Term (Strategic)`);
+  lines.push(`### Low Impact (Fix Later)`);
   if (byPriority.low.length === 0) lines.push(`- No low-priority strategic items found.`);
   byPriority.low.forEach((check) => lines.push(`- ${check.title}: ${check.recommendation}`));
 
   return lines.join("\n");
+}
+
+function formatCroReport(
+  targetUrl: string,
+  score: number,
+  checks: Array<{ title: string; priority: string; status: string; details: string; recommendation: string }>,
+) {
+  const byPriority = {
+    critical: checks.filter((c) => c.priority === "critical" && c.status !== "pass"),
+    high: checks.filter((c) => c.priority === "high" && c.status !== "pass"),
+    medium: checks.filter((c) => c.priority === "medium" && c.status !== "pass"),
+    low: checks.filter((c) => c.priority === "low" && c.status !== "pass"),
+  };
+
+  const lines: string[] = [];
+  lines.push(`# CRO Audit Report`);
+  lines.push(``);
+  lines.push(`- URL: ${targetUrl}`);
+  lines.push(`- Score: ${score}/100`);
+  lines.push(``);
+  lines.push(`## Executive Summary`);
+  lines.push(
+    score >= 80
+      ? `Strong conversion baseline with selective optimization opportunities.`
+      : `High-impact conversion friction was detected across key decision points.`,
+  );
+  lines.push(``);
+  lines.push(`## Checks`);
+  checks.forEach((check, index) => {
+    lines.push(``);
+    lines.push(`### ${index + 1}. ${check.title}`);
+    lines.push(`Status: ${check.status.toUpperCase()} · Priority: ${check.priority.toUpperCase()}`);
+    lines.push(`Assessment: ${check.details}`);
+    lines.push(`Recommendation: ${check.recommendation}`);
+  });
+  lines.push(``);
+  lines.push(`## Prioritized Action Plan`);
+  lines.push(``);
+  lines.push(`### Critical (Action Required Now)`);
+  if (byPriority.critical.length === 0) lines.push(`- No critical issues found.`);
+  byPriority.critical.forEach((check) => lines.push(`- ${check.title}: ${check.recommendation}`));
+  lines.push(``);
+  lines.push(`### High Impact (Action Required Soon)`);
+  if (byPriority.high.length === 0) lines.push(`- No high-impact issues found.`);
+  byPriority.high.forEach((check) => lines.push(`- ${check.title}: ${check.recommendation}`));
+  lines.push(``);
+  lines.push(`### Medium Impact (Address When Possible)`);
+  if (byPriority.medium.length === 0) lines.push(`- No medium-impact issues found.`);
+  byPriority.medium.forEach((check) => lines.push(`- ${check.title}: ${check.recommendation}`));
+  lines.push(``);
+  lines.push(`### Low Impact (Fix Later)`);
+  if (byPriority.low.length === 0) lines.push(`- No low-priority issues found.`);
+  byPriority.low.forEach((check) => lines.push(`- ${check.title}: ${check.recommendation}`));
+
+  return lines.join("\n");
+}
+
+function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: string, description: string) {
+  const popupCount =
+    $('[class*="popup" i], [id*="popup" i], [class*="modal" i], [id*="modal" i], [aria-modal="true"]').length;
+  const hasCookieBanner = /(cookie consent|cookie settings|accept cookies)/i.test(bodyText);
+  const h1Text = $("h1").first().text().trim();
+  const ctaButtons = $("a,button")
+    .toArray()
+    .map((el) => $(el).text().replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((text) => /(start|get|book|buy|order|trial|sign up|subscribe|shop|audit)/i.test(text));
+  const ctaInHero = $("section:first a, section:first button").length > 0;
+  const hasPrice = /(\$|€|£)\s?\d+|from\s+\$?\d+/i.test(bodyText);
+  const trustSignalsCount = [
+    /testimonial|reviews?|rating|trusted by|as seen in|customers? served|money-back|guarantee/i.test(bodyText),
+    /secure|ssl|payment|refund|return policy|warranty/i.test(bodyText),
+  ].filter(Boolean).length;
+  const navLinks = $("header a").length;
+  const hasShopNav = $("header a")
+    .toArray()
+    .some((el) => /(buy|shop|pricing|get started|sign up|checkout)/i.test($(el).text()));
+  const hasParallax = /parallax|scroll-jack|scrolljacking/i.test($.html());
+  const formFieldCount = $("form input, form select, form textarea").length;
+  const hasSchema = $('script[type="application/ld+json"]').length > 0;
+  const hasOgTitle = $('meta[property="og:title"]').length > 0;
+  const hasTwitterCard = $('meta[name="twitter:card"]').length > 0;
+  const hasViewportMeta = $('meta[name="viewport"]').length > 0;
+  const hasSupport = /(live chat|chatbot|support@|contact us|help center|faq)/i.test(bodyText);
+  const hasUrgency = /(limited|ends soon|today only|free shipping|save \d+%|offer expires)/i.test(bodyText);
+  const hasAnalytics = /googletagmanager|gtag\(|dataLayer|fbq\(|clarity|hotjar|analytics/i.test($.html());
+
+  const checksByKey: Record<string, CheckResult> = {
+    "entry-experience": {
+      key: "entry-experience",
+      score: popupCount === 0 ? 88 : popupCount <= 1 ? 62 : 40,
+      details: `Popup/modal-like overlays detected: ${popupCount}. Cookie-consent presence detected: ${yesNo(hasCookieBanner)}.`,
+      recommendation:
+        popupCount > 0
+          ? "Avoid immediate blocking overlays. Trigger popups later in-session and keep one clear CTA."
+          : "Entry experience looks clean. Keep first view focused on value and one next action.",
+    },
+    "hero-clarity": {
+      key: "hero-clarity",
+      score: h1Text.length >= 10 && ctaInHero ? 90 : h1Text.length >= 10 ? 68 : 42,
+      details: `Hero H1: "${displayValue(h1Text)}". Hero CTA detected: ${yesNo(ctaInHero)}.`,
+      recommendation:
+        "Use a clear benefit-led headline and keep one strong primary CTA visible above the fold.",
+    },
+    "value-proposition": {
+      key: "value-proposition",
+      score: title.length > 20 && description.length > 90 ? 84 : 58,
+      details: `Title: "${displayValue(title)}". Meta description length: ${description.length}.`,
+      recommendation:
+        "State your core value proposition earlier and align page messaging with user intent and objections.",
+    },
+    "cta-audit": {
+      key: "cta-audit",
+      score: ctaButtons.length >= 3 ? 86 : ctaButtons.length >= 1 ? 64 : 38,
+      details: `CTA-like elements detected: ${ctaButtons.length}. Sample CTAs: ${formatList(ctaButtons, "none", 4)}.`,
+      recommendation:
+        "Place clear action-oriented CTAs at key decision points and keep wording specific to desired outcomes.",
+    },
+    "pricing-transparency": {
+      key: "pricing-transparency",
+      score: hasPrice ? 88 : 42,
+      details: `Visible price anchor detected on page text: ${yesNo(hasPrice)}.`,
+      recommendation:
+        hasPrice
+          ? "Keep price anchors visible near CTA blocks to reduce purchase hesitation."
+          : "Add visible pricing or starting-from pricing early to reduce uncertainty and drop-off.",
+    },
+    "social-proof": {
+      key: "social-proof",
+      score: trustSignalsCount >= 2 ? 88 : trustSignalsCount === 1 ? 66 : 40,
+      details: `Trust signal clusters detected: ${trustSignalsCount}.`,
+      recommendation:
+        "Add stronger social proof near conversion points (reviews, testimonials, guarantees, and trust badges).",
+    },
+    "nav-architecture": {
+      key: "nav-architecture",
+      score: navLinks >= 3 && hasShopNav ? 82 : navLinks >= 2 ? 64 : 45,
+      details: `Header links detected: ${navLinks}. Conversion-path nav item present: ${yesNo(hasShopNav)}.`,
+      recommendation:
+        "Keep conversion paths obvious in navigation and include an always-visible action path to purchase/signup.",
+    },
+    "scroll-experience": {
+      key: "scroll-experience",
+      score: hasParallax ? 58 : 82,
+      details: `Potential parallax/scroll-jacking pattern detected: ${yesNo(hasParallax)}.`,
+      recommendation:
+        "Ensure users can scan quickly without forced scroll behavior and preserve a clear information hierarchy.",
+    },
+    "funnel-friction": {
+      key: "funnel-friction",
+      score: formFieldCount <= 4 ? 84 : formFieldCount <= 8 ? 64 : 44,
+      details: `Form fields detected across page: ${formFieldCount}.`,
+      recommendation:
+        "Minimize required steps and fields in key conversion flows. Keep only essential input requirements.",
+    },
+    "offer-communication": {
+      key: "offer-communication",
+      score: /features|benefits|compare|faq|how it works/i.test(bodyText) ? 80 : 56,
+      details: "Offer communication signals checked for feature context, comparison content, and objection handling.",
+      recommendation:
+        "Pair feature claims with clear user outcomes and answer common objections near decision points.",
+    },
+    "technical-health": {
+      key: "technical-health",
+      score: hasSchema && hasOgTitle && hasTwitterCard ? 84 : hasOgTitle ? 66 : 45,
+      details: `Schema present: ${yesNo(hasSchema)}. OG tags present: ${yesNo(hasOgTitle)}. Twitter card present: ${yesNo(
+        hasTwitterCard,
+      )}.`,
+      recommendation:
+        "Implement full metadata coverage (OG, Twitter) and structured data to support discoverability and trust.",
+    },
+    "mobile-experience": {
+      key: "mobile-experience",
+      score: hasViewportMeta ? 82 : 48,
+      details: `Viewport meta present: ${yesNo(hasViewportMeta)}.`,
+      recommendation:
+        "Maintain mobile-first readability, tap target sizing, and friction-free interaction patterns.",
+    },
+    "support-objections": {
+      key: "support-objections",
+      score: hasSupport ? 80 : 52,
+      details: `Support or FAQ signals detected: ${yesNo(hasSupport)}.`,
+      recommendation:
+        "Expose support channels and objection-handling answers earlier to reduce purchase hesitation.",
+    },
+    "urgency-incentives": {
+      key: "urgency-incentives",
+      score: hasUrgency ? 80 : 55,
+      details: `Urgency/incentive messaging detected: ${yesNo(hasUrgency)}.`,
+      recommendation:
+        "Use honest urgency and incentive cues (shipping windows, limited offers, risk reversal) near CTAs.",
+    },
+    "analytics-tracking": {
+      key: "analytics-tracking",
+      score: hasAnalytics ? 88 : 40,
+      details: `Tracking scripts/signals detected (GA/GTM/pixel/recording): ${yesNo(hasAnalytics)}.`,
+      recommendation:
+        hasAnalytics
+          ? "Keep conversion events instrumented (view, CTA click, checkout start, purchase) and monitor regularly."
+          : "Install analytics and conversion event tracking before scaling CRO tests.",
+    },
+  };
+
+  const weighted = CRO_AUDIT_CHECKLIST.map((item) => {
+    const check = checksByKey[item.key];
+    const score = check ? check.score : 50;
+    return { item, check, weightedScore: score * PRIORITY_WEIGHT[item.priority], effectivePriority: item.priority };
+  });
+  const totalWeight = weighted.reduce((acc, entry) => acc + PRIORITY_WEIGHT[entry.effectivePriority], 0);
+  const score = clamp(
+    Math.round(weighted.reduce((acc, entry) => acc + entry.weightedScore, 0) / totalWeight),
+    20,
+    98,
+  );
+
+  const checksPayload = CRO_AUDIT_CHECKLIST.map((item) => {
+    const check = checksByKey[item.key];
+    const checkScore = check?.score ?? 50;
+    return {
+      key: item.key,
+      title: item.title,
+      priority: item.priority,
+      status: statusFromCheckScore(checkScore),
+      details: check?.details ?? item.description,
+      recommendation: check?.recommendation ?? "Review this area and apply conversion-focused improvements.",
+    };
+  });
+
+  return { score, checksPayload };
 }
 
 export async function runAuditJob(auditId: string) {
@@ -218,38 +708,115 @@ export async function runAuditJob(auditId: string) {
     const audit = await prisma.audit.findUniqueOrThrow({
       where: { id: auditId },
     });
-    const html = await fetchHtml(audit.targetUrl);
+    const pageProbe = await fetchWithRedirectTrace(audit.targetUrl, { includeBody: true });
+    if (!pageProbe.finalStatus || !pageProbe.html || pageProbe.finalStatus >= 400) {
+      throw new Error(`Unable to fetch page (${pageProbe.finalStatus ?? "unknown"})`);
+    }
+    const html = pageProbe.html;
+    if (isCroAuditKeyword(audit.targetKeyword)) {
+      const $ = load(html);
+      const title = $("title").text().trim();
+      const description = $('meta[name="description"]').attr("content") ?? "";
+      const bodyText = $("body").text().replace(/\s+/g, " ").trim();
+      const { score, checksPayload } = buildCroChecks($, bodyText, title, description);
+      const reportMarkdown = formatCroReport(
+        audit.targetUrl,
+        score,
+        checksPayload.map((c) => ({
+          title: c.title,
+          priority: c.priority,
+          status: c.status,
+          details: c.details ?? "",
+          recommendation: c.recommendation ?? "",
+        })),
+      );
+
+      await prisma.$transaction([
+        prisma.auditCheck.deleteMany({ where: { auditId } }),
+        prisma.auditCheck.createMany({
+          data: checksPayload.map((check) => ({
+            auditId,
+            key: check.key,
+            title: check.title,
+            status: check.status,
+            priority: check.priority,
+            details: check.details,
+            recommendation: check.recommendation,
+          })),
+        }),
+        prisma.audit.update({
+          where: { id: auditId },
+          data: {
+            status: AuditStatus.COMPLETED,
+            score,
+            completedAt: new Date(),
+            reportMarkdown,
+            summary:
+              score >= 80
+                ? "Strong CRO baseline with selective optimization opportunities."
+                : score >= 60
+                  ? "CRO performance is mixed. Address high-priority friction first."
+                  : "Core CRO issues detected. Prioritize critical conversion blockers first.",
+          },
+        }),
+      ]);
+      return;
+    }
     const $ = load(html);
-    const normalizedKeyword = audit.targetKeyword.toLowerCase().trim();
-    const origin = new URL(audit.targetUrl).origin;
+    const keywordCandidates = parseKeywordCandidates(audit.targetKeyword);
+    const activeKeywords = keywordCandidates.length > 0 ? keywordCandidates : [audit.targetKeyword.toLowerCase().trim()];
+    const displayKeywordList = formatKeywordCandidatesAsQuotedList(activeKeywords);
+    const livePageUrl = pageProbe.finalUrl;
+    const origin = new URL(livePageUrl).origin;
 
     const title = $("title").text().trim();
     const description = $('meta[name="description"]').attr("content") ?? "";
+    const metaRobots = parseMetaRobots($);
+    const indexabilitySource = `${metaRobots} ${pageProbe.xRobotsTag}`.trim();
+    const hasNoindex = hasNoindexDirective(indexabilitySource);
+    const hasNofollow = /\bnofollow\b/i.test(indexabilitySource);
     const canonical = $('link[rel="canonical"]').attr("href") ?? "";
     const canonicalUrl = safeUrl(canonical, audit.targetUrl);
-    const targetUrlNormalized = normalizeUrl(audit.targetUrl);
+    const liveUrlNormalized = normalizeUrl(livePageUrl);
+    const requestedUrlNormalized = normalizeUrl(audit.targetUrl);
     const canonicalNormalized = canonicalUrl ? normalizeUrl(canonicalUrl.toString()) : null;
+    const canonicalIsSelfReferencing = Boolean(canonicalUrl && canonicalNormalized === liveUrlNormalized);
+    const canonicalProbe = canonicalUrl
+      ? await fetchWithRedirectTrace(canonicalUrl.toString(), { includeBody: true })
+      : null;
+    const canonicalTargetStatusOk = canonicalProbe
+      ? Boolean(canonicalProbe.finalStatus && canonicalProbe.finalStatus >= 200 && canonicalProbe.finalStatus < 300)
+      : false;
+    const canonicalTargetMetaRobots =
+      canonicalProbe?.html ? parseTitleDescription(canonicalProbe.html).metaRobots : "";
+    const canonicalTargetNoindex = canonicalProbe
+      ? hasNoindexDirective(`${canonicalProbe.xRobotsTag} ${canonicalTargetMetaRobots}`)
+      : false;
+    const titleHasKeyword = matchesAnyKeywordEquivalent(title, activeKeywords);
+    const metaHasKeyword = matchesAnyKeywordEquivalent(description, activeKeywords);
     const h1Count = $("h1").length;
     const h1Text = $("h1").first().text().trim();
-    const h1ContainsKeyword = h1Text.toLowerCase().includes(normalizedKeyword);
+    const h1ContainsKeyword = matchesAnyKeywordEquivalent(h1Text, activeKeywords);
     const h2Count = $("h2").length;
     const h2WithKeywordCount = $("h2")
       .toArray()
-      .filter((el) => $(el).text().toLowerCase().includes(normalizedKeyword)).length;
+      .filter((el) => matchesAnyKeywordEquivalent($(el).text(), activeKeywords)).length;
     const h3Count = $("h3").length;
     const footerH2Count = $("footer h2").length;
+    const firstHeadingTagRaw = $("h1, h2, h3, h4, h5, h6").first().get(0)?.tagName ?? "";
+    const firstHeadingTag = firstHeadingTagRaw.toLowerCase();
+    const firstHeadingIsH1 = firstHeadingTag === "h1";
     const bodyText = $("body").text().replace(/\s+/g, " ").trim();
     const wordCount = bodyText ? bodyText.split(" ").length : 0;
-    const keywordCount =
-      bodyText
-        .toLowerCase()
-        .split(audit.targetKeyword.toLowerCase())
-        .length - 1;
+    const keywordCount = countExactKeywordMatches(bodyText, activeKeywords);
     const keywordDensity = wordCount > 0 ? (keywordCount / wordCount) * 100 : 0;
-    const keywordInMetaCount = description
-      .toLowerCase()
-      .split(normalizedKeyword)
-      .length - 1;
+    const exactKeywordInMetaCount = countExactKeywordMatches(description, activeKeywords);
+    const headingHierarchyIssues: string[] = [];
+    if (h1Count !== 1) headingHierarchyIssues.push(`expected exactly one H1 but found ${h1Count}`);
+    if (!firstHeadingIsH1) headingHierarchyIssues.push(`first heading is ${firstHeadingTag || "none"} instead of H1`);
+    if (h2Count === 0) headingHierarchyIssues.push("no H2 section headings were found");
+    if (footerH2Count > 0) headingHierarchyIssues.push(`${footerH2Count} H2 heading(s) found inside footer`);
+    const metaAppearsStuffed = exactKeywordInMetaCount > 1;
 
     const images = $("img").toArray();
     const missingAlt = images.filter((img) => !($(img).attr("alt") ?? "").trim()).length;
@@ -263,6 +830,62 @@ export async function runAuditJob(auditId: string) {
       return ["image", "img", "icon", "mockup", "photo", "screenshot"].includes(alt);
     }).length;
 
+    const scriptTagsWithSrc = $("script[src]").toArray();
+    const scriptSrcUrls = scriptTagsWithSrc
+      .map((tag) => $(tag).attr("src") ?? "")
+      .map((src) => safeUrl(src, livePageUrl)?.toString())
+      .filter((url): url is string => Boolean(url));
+    const sameOriginScriptUrls = [...new Set(
+      scriptSrcUrls.filter((scriptUrl) => safeUrl(scriptUrl, livePageUrl)?.origin === origin),
+    )];
+    const stylesheetUrls = [...new Set(
+      $('link[rel="stylesheet"][href]')
+        .toArray()
+        .map((tag) => $(tag).attr("href") ?? "")
+        .map((href) => safeUrl(href, livePageUrl)?.toString())
+        .filter((url): url is string => Boolean(url))
+        .filter((resolved) => safeUrl(resolved, livePageUrl)?.origin === origin),
+    )];
+    const renderBlockingScripts = scriptTagsWithSrc.filter((tag) => {
+      const isInHead = $(tag).parents("head").length > 0;
+      const hasAsync = $(tag).attr("async") !== undefined;
+      const hasDefer = $(tag).attr("defer") !== undefined;
+      const typeValue = ($(tag).attr("type") ?? "").toLowerCase();
+      const isModule = typeValue === "module";
+      return isInHead && !hasAsync && !hasDefer && !isModule;
+    });
+    const renderBlockingScriptUrls = renderBlockingScripts
+      .map((tag) => $(tag).attr("src") ?? "")
+      .map((src) => safeUrl(src, livePageUrl)?.toString() ?? src)
+      .filter(Boolean);
+    const preloadStyleCount = $('link[rel="preload"][as="style"]').length;
+    const nonPreloadedStylesheetCount = Math.max(stylesheetUrls.length - preloadStyleCount, 0);
+
+    const thirdPartyScriptUrls = [...new Set(
+      scriptSrcUrls.filter((scriptUrl) => {
+        const resolved = safeUrl(scriptUrl, livePageUrl);
+        return Boolean(resolved && resolved.origin !== origin);
+      }),
+    )];
+    const thirdPartyScriptDomains = [...new Set(
+      thirdPartyScriptUrls
+        .map((scriptUrl) => safeUrl(scriptUrl, livePageUrl)?.hostname.toLowerCase() ?? "")
+        .filter(Boolean),
+    )];
+
+    const coreAssetCandidates = [...new Set([...sameOriginScriptUrls, ...stylesheetUrls])].slice(0, 12);
+    const coreAssetHeaderProbes = await Promise.all(coreAssetCandidates.map((url) => fetchAssetHeaders(url)));
+    const successfulCoreAssetProbes = coreAssetHeaderProbes.filter(
+      (probe) => Boolean(probe.status && probe.status >= 200 && probe.status < 400),
+    );
+    const weakCacheAssets = successfulCoreAssetProbes.filter(
+      (probe) => !hasStrongCacheControl(probe.cacheControl),
+    );
+    const uncompressedAssets = successfulCoreAssetProbes.filter(
+      (probe) =>
+        isLikelyCompressibleAsset(probe.url, probe.contentType) && !probe.contentEncoding.trim(),
+    );
+
     const anchorTags = $("a[href]").toArray();
     const internalAnchors = anchorTags.filter((a) => {
       const href = $(a).attr("href") ?? "";
@@ -273,11 +896,6 @@ export async function runAuditJob(auditId: string) {
       const href = $(a).attr("href") ?? "";
       return !href.startsWith("#") && href !== "/" && href !== `${origin}/`;
     });
-    const keywordTokens = tokenizeKeyword(normalizedKeyword);
-    const keywordAnchorMatches = internalAnchors.filter((a) => {
-      const text = $(a).text().toLowerCase().trim();
-      return keywordTokens.some((token) => token.length > 3 && text.includes(token));
-    }).length;
     const internalUniquePaths = new Set(
       internalAnchors
         .map((a) => $(a).attr("href") ?? "")
@@ -304,16 +922,25 @@ export async function runAuditJob(auditId: string) {
     const hasWebSiteSchema = parsedSchemaTypes.some((type) => /website/i.test(type));
 
     const hreflangTags = $('link[rel="alternate"][hreflang]').toArray();
+    const hreflangEntries = hreflangTags
+      .map((tag) => {
+        const lang = ($(tag).attr("hreflang") ?? "").trim().toLowerCase();
+        const href = ($(tag).attr("href") ?? "").trim();
+        const resolved = safeUrl(href, audit.targetUrl)?.toString() ?? href;
+        return lang ? `${lang}: ${resolved || "missing-href"}` : "";
+      })
+      .filter(Boolean);
     const hasXDefault = hreflangTags.some((tag) => ($(tag).attr("hreflang") ?? "").toLowerCase() === "x-default");
     const xDefaultTag = hreflangTags.find((tag) => ($(tag).attr("hreflang") ?? "").toLowerCase() === "x-default");
     const xDefaultHrefRaw = xDefaultTag ? $(xDefaultTag).attr("href") ?? "" : "";
     const xDefaultHref = safeUrl(xDefaultHrefRaw, audit.targetUrl);
-    const xDefaultPointsToRoot =
-      xDefaultHref?.pathname === "/" || normalizeUrl(xDefaultHref?.toString() ?? "") === normalizeUrl(origin);
 
     const robotsText = await fetchText(`${origin}/robots.txt`);
     const robotsLower = robotsText?.toLowerCase() ?? "";
     const aiBotBlocked = /(claudebot|gptbot|bytespider|ccbot|google-extended)/i.test(robotsLower);
+    const matchedAiBots = ["claudebot", "gptbot", "bytespider", "ccbot", "google-extended"].filter((bot) =>
+      robotsLower.includes(bot),
+    );
     const robotsDeclaresSitemap = robotsLower.includes("sitemap:");
     const robotsAllowsGoogle = !/user-agent:\s*googlebot[\s\S]*?disallow:\s*\/\s*$/im.test(robotsLower);
     const robotsSitemapUrls = parseRobotsSitemapUrls(robotsText, origin);
@@ -327,6 +954,7 @@ export async function runAuditJob(auditId: string) {
       })),
     );
     const reachableRootSitemaps = rootSitemapTexts.filter((entry) => Boolean(entry.text));
+    const reachableRootSitemapUrls = reachableRootSitemaps.map((entry) => entry.sitemapUrl);
 
     const nestedSitemapUrls = [...new Set(
       reachableRootSitemaps.flatMap((entry) =>
@@ -348,6 +976,8 @@ export async function runAuditJob(auditId: string) {
           .filter((loc) => !/\.xml($|\?)/i.test(loc)),
       ),
     ];
+    const sampleSitemapLocs = sitemapLocs.slice(0, 5);
+    const sitemapSampleForCrawl = [...new Set([`${origin}/`, ...sitemapLocs])].slice(0, 30);
 
     const submittedUrl = safeUrl(audit.targetUrl, audit.targetUrl);
     const submittedComparable = submittedUrl ? normalizePageUrlForComparison(submittedUrl) : null;
@@ -366,6 +996,58 @@ export async function runAuditJob(auditId: string) {
       return url ? /^\/[a-z]{2}(-[a-z]{2})?\/?$/i.test(url.pathname) : false;
     }).length;
 
+    const internalLinkCandidates = [...new Set(
+      nonFragmentInternalLinks
+        .map((a) => $(a).attr("href") ?? "")
+        .map((href) => safeUrl(href, livePageUrl)?.toString())
+        .filter((href): href is string => Boolean(href)),
+    )].slice(0, 20);
+    const internalLinkProbes = await Promise.all(
+      internalLinkCandidates.map(async (url) => ({
+        url,
+        probe: await fetchWithRedirectTrace(url),
+      })),
+    );
+    const brokenInternalLinks = internalLinkProbes.filter(
+      ({ probe }) => !probe.finalStatus || probe.finalStatus >= 400,
+    );
+    const excessiveRedirectInternalLinks = internalLinkProbes.filter(({ probe }) => probe.hops >= 3);
+
+    const metadataPageProbes = await Promise.all(
+      sitemapSampleForCrawl.map(async (url) => ({
+        url,
+        probe: await fetchWithRedirectTrace(url, { includeBody: true }),
+      })),
+    );
+    const crawledMetadataPages = metadataPageProbes.filter(
+      ({ probe }) => Boolean(probe.html && probe.finalStatus && probe.finalStatus < 400),
+    );
+    const duplicateTitleMap = new Map<string, string[]>();
+    const duplicateDescriptionMap = new Map<string, string[]>();
+    crawledMetadataPages.forEach(({ probe }) => {
+      if (!probe.html) return;
+      const parsed = parseTitleDescription(probe.html);
+      const normalizedTitle = normalizeForDuplicate(parsed.title);
+      const normalizedDescription = normalizeForDuplicate(parsed.description);
+      if (normalizedTitle) {
+        duplicateTitleMap.set(normalizedTitle, [...(duplicateTitleMap.get(normalizedTitle) ?? []), probe.finalUrl]);
+      }
+      if (normalizedDescription) {
+        duplicateDescriptionMap.set(normalizedDescription, [
+          ...(duplicateDescriptionMap.get(normalizedDescription) ?? []),
+          probe.finalUrl,
+        ]);
+      }
+    });
+    const duplicateTitles = [...duplicateTitleMap.entries()]
+      .filter(([, urls]) => urls.length > 1)
+      .map(([value, urls]) => ({ value, urls }));
+    const duplicateDescriptions = [...duplicateDescriptionMap.entries()]
+      .filter(([, urls]) => urls.length > 1)
+      .map(([value, urls]) => ({ value, urls }));
+
+    const safeBrowsing = await checkSafeBrowsing(livePageUrl);
+
     const ogTitle = $('meta[property="og:title"]').attr("content") ?? "";
     const ogDescription = $('meta[property="og:description"]').attr("content") ?? "";
     const ogImage = $('meta[property="og:image"]').attr("content") ?? "";
@@ -378,7 +1060,15 @@ export async function runAuditJob(auditId: string) {
     const hasTestimonials =
       testimonialNodes > 0 || /(testimonial|testimonials|case study|customer stories|trusted by|reviews?)/i.test(bodyText);
     const hasNamedAuthor = /(by\s+[A-Z][a-z]+\s+[A-Z][a-z]+|author)/.test(bodyText);
-    const hasAboutPageLink = $('a[href*="about"]').length > 0;
+    const aboutLinkMatches = $("a[href]")
+      .toArray()
+      .map((a) => $(a).attr("href") ?? "")
+      .map((href) => safeUrl(href, livePageUrl))
+      .filter((url): url is URL => Boolean(url))
+      .filter((url) => url.origin === origin)
+      .map((url) => url.pathname.toLowerCase())
+      .filter((path) => path === "/about" || path === "/about/" || path === "/about-us" || path === "/about-us/");
+    const hasAboutPageLink = aboutLinkMatches.length > 0;
     const aboutPaths = ["/about", "/about-us"] as const;
     const aboutPageTexts = await Promise.all(aboutPaths.map((path) => fetchText(`${origin}${path}`)));
     const reachableAboutPages = aboutPageTexts.filter((content) => Boolean(content)).length;
@@ -397,14 +1087,14 @@ export async function runAuditJob(auditId: string) {
       "title-tag": {
         key: "title-tag",
         score:
-          title.length >= 20 && title.length <= 60 && title.toLowerCase().includes(normalizedKeyword)
+          title.length >= 20 && title.length <= 60 && titleHasKeyword
             ? 95
             : title.length >= 20 && title.length <= 60
               ? 75
               : 40,
-        details: `Title length: ${title.length} characters. Current title: "${title || "Missing title"}". Target keyword present in title: ${title.toLowerCase().includes(normalizedKeyword)}.`,
+        details: `Current title: "${displayValue(title)}".\nTarget keyword(s): ${displayKeywordList}`,
         recommendation:
-          title.toLowerCase().includes(normalizedKeyword)
+          titleHasKeyword
             ? "Keep keyword near the beginning and maintain this structure."
             : "Include the target keyword naturally in the title and keep it 50-60 characters.",
       },
@@ -413,15 +1103,15 @@ export async function runAuditJob(auditId: string) {
         score:
           description.length >= 120 &&
           description.length <= 160 &&
-          keywordInMetaCount > 0 &&
-          keywordInMetaCount <= 1
+          metaHasKeyword &&
+          exactKeywordInMetaCount <= 1
             ? 90
             : description.length > 0
               ? 60
               : 25,
-        details: `Meta description length: ${description.length} characters. Exact keyword uses in meta: ${keywordInMetaCount}.`,
+        details: `Meta description: "${displayValue(description)}".\nLength: ${description.length} characters.\nTarget keyword(s): ${displayKeywordList}\nAny variant present: ${yesNo(metaHasKeyword)}. Exact phrase uses: ${exactKeywordInMetaCount}.`,
         recommendation:
-          keywordInMetaCount === 0
+          !metaHasKeyword
             ? "Include the target keyword once in meta description and keep it natural."
             : description.length > 160
             ? "Trim the description to around 150-160 characters and front-load value proposition."
@@ -434,14 +1124,14 @@ export async function runAuditJob(auditId: string) {
         score:
           description.length === 0
             ? 35
-            : keywordInMetaCount > 1
+            : metaAppearsStuffed
               ? 45
-              : /(,\s*\w+\s*,\s*\w+)/i.test(description)
-                ? 65
-                : 88,
-        details: `Keyword repetition in meta: ${keywordInMetaCount}. Description: "${description || "Missing description"}".`,
+              : 88,
+        details: `Meta description: "${displayValue(description)}". Exact phrase repetition count: ${exactKeywordInMetaCount}. Stuffing detected: ${yesNo(
+          metaAppearsStuffed,
+        )}.`,
         recommendation:
-          keywordInMetaCount > 1
+          metaAppearsStuffed
             ? "Reduce repeated keyword phrases in meta copy and prioritize one clear value proposition."
             : "Keep meta copy natural and avoid repeated phrase patterns that feel stuffed.",
       },
@@ -455,7 +1145,7 @@ export async function runAuditJob(auditId: string) {
               : h1Count === 0
                 ? 35
                 : 50,
-        details: `Detected ${h1Count} H1 tags. Current H1: "${h1Text || "Missing H1"}". Target keyword present in H1: ${h1ContainsKeyword}.`,
+        details: `Detected ${h1Count} H1 tags.\nCurrent H1: "${displayValue(h1Text)}".\nTarget keyword(s): ${displayKeywordList}\nAny variant present in H1: ${h1ContainsKeyword}.`,
         recommendation:
           h1Count === 1 && h1ContainsKeyword
             ? "Maintain one clear H1 aligned with title intent."
@@ -464,7 +1154,7 @@ export async function runAuditJob(auditId: string) {
       "h2-keyword": {
         key: "h2-keyword",
         score: h2WithKeywordCount > 0 ? 88 : h2Count > 0 ? 48 : 35,
-        details: `H2 headings found: ${h2Count}. H2 headings containing target keyword: ${h2WithKeywordCount}.`,
+        details: `H2 headings found: ${h2Count}.\nTarget keyword(s): ${displayKeywordList}\nH2 headings containing any keyword variant: ${h2WithKeywordCount}.`,
         recommendation:
           h2WithKeywordCount > 0
             ? "Keep at least one meaningful H2 aligned with the target keyword."
@@ -473,15 +1163,23 @@ export async function runAuditJob(auditId: string) {
       "heading-hierarchy": {
         key: "heading-hierarchy",
         score:
-          h2Count > 0 && (h3Count === 0 || h2Count >= Math.floor(h3Count / 2)) && footerH2Count === 0 ? 84 : 55,
-        details: `Heading counts: H2=${h2Count}, H3=${h3Count}, footer H2=${footerH2Count}.`,
+          h1Count === 1 &&
+          firstHeadingIsH1 &&
+          h2Count > 0 &&
+          (h3Count === 0 || h2Count >= Math.floor(h3Count / 2)) &&
+          footerH2Count === 0
+            ? 88
+            : 48,
+        details: `First heading tag: ${firstHeadingTag || "none"}. Heading counts: H1=${h1Count}, H2=${h2Count}, H3=${h3Count}, footer H2=${footerH2Count}. Issues: ${
+          headingHierarchyIssues.length > 0 ? headingHierarchyIssues.join("; ") : "none"
+        }.`,
         recommendation:
-          "Map sections to clear H2 anchors, use H3 as true subsections, and avoid H2 usage in footer utility blocks.",
+          "Use one H1 as the first heading on the page, then structure sections with clear H2/H3 hierarchy.",
       },
       "keyword-usage": {
         key: "keyword-usage",
         score: keywordCount >= 2 && keywordDensity < 1.5 && wordCount >= 700 ? 85 : 55,
-        details: `Word count: ${wordCount}. Exact keyword occurrences: ${keywordCount}. Density: ${keywordDensity.toFixed(2)}%.`,
+        details: `Word count: ${wordCount}.\nTarget keyword(s): ${displayKeywordList}\nExact occurrences (combined): ${keywordCount}. Density: ${keywordDensity.toFixed(2)}%.`,
         recommendation:
           "Increase topical depth and include relevant keyword variants in descriptive sections.",
       },
@@ -512,57 +1210,79 @@ export async function runAuditJob(auditId: string) {
       },
       canonical: {
         key: "canonical",
-        score: canonical ? 88 : 35,
+        score: canonicalIsSelfReferencing ? 95 : canonical ? 48 : 20,
         details: canonical
-          ? `Canonical points to: ${canonical}`
+          ? `Canonical points to: ${canonical}. Self-referencing canonical: ${yesNo(canonicalIsSelfReferencing)}.`
           : "No canonical tag detected.",
         recommendation:
-          canonical
-            ? "Confirm canonical URL matches your preferred indexable URL."
-            : "Add a canonical tag to prevent duplicate indexing issues.",
+          canonicalIsSelfReferencing
+            ? "Canonical implementation looks strong. Keep it self-referencing on indexable pages."
+            : "Add a self-referencing canonical tag that matches the live page URL.",
       },
       "canonical-consistency": {
         key: "canonical-consistency",
         score:
           !canonicalUrl
-            ? 35
+            ? 20
             : canonicalUrl.origin !== origin
               ? 42
-              : canonicalNormalized === targetUrlNormalized
-                ? 92
-                : canonicalUrl.pathname === "/"
-                  ? 80
-                  : 62,
+              : !canonicalTargetStatusOk
+                ? 35
+                : canonicalTargetNoindex
+                  ? 30
+                  : canonicalNormalized === liveUrlNormalized
+                    ? 92
+                    : canonicalUrl.pathname === "/"
+                      ? 68
+                      : 55,
         details: canonicalUrl
-          ? `Canonical normalized: ${canonicalNormalized}. Audited URL normalized: ${targetUrlNormalized}.`
+          ? `Canonical normalized: ${canonicalNormalized}. Live URL normalized: ${liveUrlNormalized}. Requested URL normalized: ${requestedUrlNormalized}. Canonical target status: ${canonicalProbe?.finalStatus ?? "n/a"}. Canonical target noindex: ${yesNo(canonicalTargetNoindex)}.`
           : "Canonical URL is missing or invalid.",
         recommendation:
           canonicalUrl && canonicalUrl.origin === origin
-            ? "Keep canonical host consistent and ensure each page canonicals to the preferred live URL."
+            ? "Keep canonical host consistent and ensure canonical target resolves as indexable 200 URL."
             : "Set a valid same-domain canonical URL and avoid cross-domain canonicals unless intentional.",
+      },
+      "indexability-controls": {
+        key: "indexability-controls",
+        score: hasNoindex ? 20 : hasNofollow ? 55 : 92,
+        details: `meta robots="${displayValue(metaRobots)}", x-robots-tag="${displayValue(
+          pageProbe.xRobotsTag,
+        )}". noindex detected: ${yesNo(hasNoindex)}. nofollow detected: ${yesNo(hasNofollow)}.`,
+        recommendation: hasNoindex
+          ? "Remove noindex directives from pages intended to rank."
+          : hasNofollow
+            ? "Review nofollow directives and keep crawl paths open for important pages."
+            : "Indexability directives look healthy for ranking pages.",
+      },
+      "http-status-chain": {
+        key: "http-status-chain",
+        score:
+          !pageProbe.finalStatus
+            ? 30
+            : pageProbe.finalStatus >= 400
+              ? 20
+              : pageProbe.hops >= 3
+                ? 48
+                : pageProbe.usedTemporaryRedirect
+                  ? 62
+                  : 92,
+        details: `Requested URL: ${audit.targetUrl}. Final URL: ${pageProbe.finalUrl}. Final status: ${
+          pageProbe.finalStatus ?? "n/a"
+        }. Redirect hops: ${pageProbe.hops}. Temporary redirects used: ${yesNo(
+          pageProbe.usedTemporaryRedirect,
+        )}. Loop detected: ${yesNo(pageProbe.loopDetected)}. Chain: ${formatList(pageProbe.chain, "none", 6)}.`,
+        recommendation:
+          "Prefer a direct 200 response with minimal hops; reduce long redirect chains and temporary redirects for stable canonical URLs.",
       },
       hreflang: {
         key: "hreflang",
         score: hreflangTags.length === 0 ? 60 : hasXDefault ? 85 : 65,
-        details: `Hreflang tags found: ${hreflangTags.length}. x-default present: ${hasXDefault}.`,
+        details: `Hreflang entries: ${formatList(hreflangEntries)}. x-default present: ${yesNo(
+          hasXDefault,
+        )}. x-default href: ${xDefaultHref?.toString() ?? "missing"}.`,
         recommendation:
           "Ensure x-default points to your canonical default page and locale URLs are in sitemap.",
-      },
-      "hreflang-consistency": {
-        key: "hreflang-consistency",
-        score:
-          hreflangTags.length === 0
-            ? 55
-            : hasXDefault && xDefaultPointsToRoot
-              ? 90
-              : hasXDefault
-                ? 62
-                : 48,
-        details: `x-default href: ${xDefaultHref?.toString() ?? "missing"}. Points to root/canonical: ${xDefaultPointsToRoot}. Localized URLs in sitemap: ${sitemapLocaleCount}.`,
-        recommendation:
-          hasXDefault && xDefaultPointsToRoot
-            ? "Keep x-default aligned to your canonical homepage and maintain locale sitemap parity."
-            : "Point x-default to canonical root and verify all locale alternates exist in the sitemap.",
       },
       sitemap: {
         key: "sitemap",
@@ -576,8 +1296,12 @@ export async function runAuditJob(auditId: string) {
             : 20,
         details:
           reachableRootSitemaps.length > 0
-            ? `Reachable sitemaps: ${reachableRootSitemaps.length}. URLs listed: ${sitemapLocs.length}. Homepage included: ${sitemapHasHome}. Submitted page in sitemap: ${submittedPageInSitemap}.`
-            : "No reachable sitemap detected from /sitemap.xml or robots-declared sitemap URLs.",
+            ? `Sitemap URLs checked: ${formatList(rootSitemapCandidates)}. Reachable sitemap URLs: ${formatList(
+                reachableRootSitemapUrls,
+              )}. URLs listed: ${sitemapLocs.length}. Submitted page: ${submittedComparable ?? audit.targetUrl}. Submitted page in sitemap: ${yesNo(
+                submittedPageInSitemap,
+              )}.`
+            : `No reachable sitemap found. Checked: ${formatList(rootSitemapCandidates)}.`,
         recommendation:
           "Ensure homepage and the exact submitted URL are listed in sitemap coverage.",
       },
@@ -591,7 +1315,9 @@ export async function runAuditJob(auditId: string) {
               : sitemapBlogArticleCount >= 1
                 ? 68
                 : 45,
-        details: `Sitemap URLs: ${sitemapLocs.length}. Blog/article URLs detected: ${sitemapBlogArticleCount}. Locale root URLs detected: ${sitemapLocaleCount}.`,
+        details: `Total sitemap page URLs: ${sitemapLocs.length}. Sample sitemap URLs: ${formatList(
+          sampleSitemapLocs,
+        )}. Blog/article URLs detected: ${sitemapBlogArticleCount}. Locale root URLs detected: ${sitemapLocaleCount}.`,
         recommendation:
           sitemapBlogArticleCount >= 3
             ? "Sitemap depth is healthy. Keep article URLs fresh and include new content quickly."
@@ -606,8 +1332,12 @@ export async function runAuditJob(auditId: string) {
               ? 60
               : 30,
         details: robotsText
-          ? `robots.txt detected. Sitemap declared: ${robotsDeclaresSitemap}. Sitemap URLs in robots: ${robotsSitemapUrls.length}. Googlebot broadly allowed: ${robotsAllowsGoogle}.`
-          : "robots.txt not detected.",
+          ? `robots.txt URL: ${origin}/robots.txt. Sitemap declared: ${yesNo(
+              robotsDeclaresSitemap,
+            )}. Sitemap URLs in robots: ${formatList(robotsSitemapUrls)}. Googlebot broadly allowed: ${yesNo(
+              robotsAllowsGoogle,
+            )}.`
+          : `robots.txt not detected at ${origin}/robots.txt.`,
         recommendation:
           "Declare explicit sitemap URL(s) in robots.txt and avoid blocking key public pages unintentionally.",
       },
@@ -615,32 +1345,50 @@ export async function runAuditJob(auditId: string) {
         key: "robots-ai-policy",
         score: !robotsText ? 45 : aiBotBlocked ? 75 : 60,
         details: robotsText
-          ? `AI crawler directives detected: ${aiBotBlocked}.`
-          : "robots.txt missing, AI crawler policy cannot be verified.",
+          ? `AI crawler directives present: ${yesNo(aiBotBlocked)}. Matched bots: ${formatList(
+              matchedAiBots,
+              "none",
+            )}.`
+          : `robots.txt missing at ${origin}/robots.txt, AI crawler policy cannot be verified.`,
         recommendation:
           "Define an explicit AI crawler policy in robots.txt based on your content licensing and discoverability goals.",
       },
       "social-tags": {
         key: "social-tags",
         score:
-          ogTitle.length > 0 && ogDescription.length > 0 && ogImage.length > 0
+          ogTitle.length >= 30 &&
+          ogTitle.length <= 65 &&
+          ogDescription.length >= 70 &&
+          ogDescription.length <= 220 &&
+          ogImage.length > 0
             ? 85
+            : ogTitle.length > 0 && ogDescription.length > 0 && ogImage.length > 0
+              ? 70
             : 55,
-        details: `OG title: ${Boolean(ogTitle)}, OG description: ${Boolean(ogDescription)}, OG image: ${Boolean(ogImage)}.`,
+        details: `og:title="${displayValue(ogTitle)}", og:description="${displayValue(
+          ogDescription,
+        )}", og:image="${displayValue(ogImage)}".`,
         recommendation:
           "Set Open Graph and X card tags for stronger link previews.",
       },
       "twitter-card-coverage": {
         key: "twitter-card-coverage",
         score:
-          twitterCard.length > 0 && twitterTitle.length > 0 && twitterDescription.length > 0 && twitterImage.length > 0
+          twitterCard.length > 0 &&
+          twitterTitle.length >= 30 &&
+          twitterTitle.length <= 70 &&
+          twitterDescription.length >= 70 &&
+          twitterDescription.length <= 220 &&
+          twitterImage.length > 0
             ? 86
-            : twitterCard.length > 0
+            : twitterCard.length > 0 && twitterTitle.length > 0 && twitterDescription.length > 0
               ? 62
               : 45,
-        details: `twitter:card=${twitterCard || "missing"}, title=${Boolean(twitterTitle)}, description=${Boolean(
-          twitterDescription,
-        )}, image=${Boolean(twitterImage)}.`,
+        details: `twitter:card="${displayValue(twitterCard)}", twitter:title="${displayValue(
+          twitterTitle,
+        )}", twitter:description="${displayValue(twitterDescription)}", twitter:image="${displayValue(
+          twitterImage,
+        )}".`,
         recommendation:
           "Provide complete Twitter card tags (card, title, description, image) for reliable social previews.",
       },
@@ -668,6 +1416,62 @@ export async function runAuditJob(auditId: string) {
         recommendation:
           "Lazy-load below-fold images and preload key LCP image assets for stronger Core Web Vitals.",
       },
+      "render-blocking-resources": {
+        key: "render-blocking-resources",
+        score:
+          renderBlockingScripts.length === 0 && nonPreloadedStylesheetCount <= 2
+            ? 92
+            : renderBlockingScripts.length <= 1 && nonPreloadedStylesheetCount <= 3
+              ? 82
+              : renderBlockingScripts.length <= 2
+                ? 62
+                : 42,
+        details: `Head scripts without async/defer/module: ${renderBlockingScripts.length} (${formatList(
+          renderBlockingScriptUrls,
+          "none",
+          4,
+        )}). Stylesheets discovered: ${stylesheetUrls.length}. Stylesheets without preload hint: ${nonPreloadedStylesheetCount}.`,
+        recommendation:
+          "Move non-critical scripts out of head or add defer/async, and preload only the CSS needed for first paint.",
+      },
+      "asset-caching-compression": {
+        key: "asset-caching-compression",
+        score:
+          successfulCoreAssetProbes.length === 0
+            ? 72
+            : weakCacheAssets.length === 0 && uncompressedAssets.length === 0
+              ? 92
+              : weakCacheAssets.length <= 1 && uncompressedAssets.length <= 1
+                ? 82
+                : weakCacheAssets.length + uncompressedAssets.length <= 3
+                  ? 64
+                  : 42,
+        details: `Core assets checked: ${successfulCoreAssetProbes.length}/${coreAssetCandidates.length}. Weak cache-control assets: ${
+          weakCacheAssets.length
+        } (${formatList(weakCacheAssets.map((asset) => asset.url), "none", 3)}). Uncompressed text assets: ${
+          uncompressedAssets.length
+        } (${formatList(uncompressedAssets.map((asset) => asset.url), "none", 3)}).`,
+        recommendation:
+          "Set long-lived cache-control on versioned JS/CSS assets and enable Brotli/Gzip compression for text resources.",
+      },
+      "third-party-script-weight": {
+        key: "third-party-script-weight",
+        score:
+          thirdPartyScriptUrls.length === 0
+            ? 92
+            : thirdPartyScriptUrls.length <= 2 && thirdPartyScriptDomains.length <= 2
+              ? 84
+              : thirdPartyScriptUrls.length <= 5
+                ? 64
+                : 42,
+        details: `Third-party scripts found: ${thirdPartyScriptUrls.length}. External domains: ${thirdPartyScriptDomains.length} (${formatList(
+          thirdPartyScriptDomains,
+          "none",
+          5,
+        )}).`,
+        recommendation:
+          "Limit third-party tags, load them after critical content, and remove vendors that do not create measurable business value.",
+      },
       "internal-linking": {
         key: "internal-linking",
         score: internalLinks >= 5 ? 85 : internalLinks >= 2 ? 65 : 45,
@@ -675,17 +1479,23 @@ export async function runAuditJob(auditId: string) {
         recommendation:
           "Add contextual internal links between key sections and supporting pages.",
       },
-      "internal-link-quality": {
-        key: "internal-link-quality",
+      "internal-links-health": {
+        key: "internal-links-health",
         score:
-          nonFragmentInternalLinks.length >= 3 && keywordAnchorMatches >= 1
-            ? 84
-            : nonFragmentInternalLinks.length >= 1
-              ? 62
-              : 42,
-        details: `Non-fragment internal links: ${nonFragmentInternalLinks.length}. Keyword-relevant anchor links: ${keywordAnchorMatches}.`,
+          internalLinkCandidates.length === 0
+            ? 72
+            : brokenInternalLinks.length === 0 && excessiveRedirectInternalLinks.length === 0
+              ? 90
+              : brokenInternalLinks.length <= 1 && excessiveRedirectInternalLinks.length <= 2
+                ? 66
+                : 42,
+        details: `Internal links checked: ${internalLinkCandidates.length}. Broken (4xx/5xx): ${
+          brokenInternalLinks.length
+        } (${formatList(brokenInternalLinks.map((item) => item.url), "none", 3)}). Excessive redirect chains (3+ hops): ${
+          excessiveRedirectInternalLinks.length
+        } (${formatList(excessiveRedirectInternalLinks.map((item) => item.url), "none", 3)}).`,
         recommendation:
-          "Add links to supporting pages/posts with descriptive keyword-relevant anchor text.",
+          "Fix broken internal links and update URLs that pass through long redirect chains.",
       },
       "site-architecture": {
         key: "site-architecture",
@@ -704,7 +1514,7 @@ export async function runAuditJob(auditId: string) {
               : 52,
         details: `Signals found - testimonials/case studies: ${hasTestimonials}, about link on page: ${hasAboutPageLink}, reachable about pages: ${reachableAboutPages}, leadership/author signals: ${
           hasLeadershipSignals || hasAuthorBioSignals
-        }, review platform link: ${hasReviewPlatformLink}.`,
+        }, review platform link: ${hasReviewPlatformLink}. About link matches: ${formatList(aboutLinkMatches, "none")}.`,
         recommendation:
           hasTestimonials && (hasAboutPageLink || hasAboutPageContent)
             ? "E-E-A-T baseline is present. Strengthen it further with richer proof points (named outcomes, expert profiles, and third-party validation)."
@@ -713,18 +1523,14 @@ export async function runAuditJob(auditId: string) {
       "author-credibility": {
         key: "author-credibility",
         score: hasNamedAuthor || hasAuthorBioSignals ? 84 : hasAboutPageLink || hasAboutPageContent ? 68 : 40,
-        details: `Named author/team signal detected: ${hasNamedAuthor || hasAuthorBioSignals}. About page linked: ${hasAboutPageLink}. Reachable about page content: ${hasAboutPageContent}.`,
+        details: `Named author/team signal detected: ${hasNamedAuthor || hasAuthorBioSignals}. About page linked: ${hasAboutPageLink}. About link matches: ${formatList(
+          aboutLinkMatches,
+          "none",
+        )}. Reachable about page content: ${hasAboutPageContent}.`,
         recommendation:
           hasNamedAuthor || hasAuthorBioSignals
             ? "Maintain visible expert attribution and keep author/team credentials up to date."
             : "Add named experts/authors with profile details and stronger team transparency.",
-      },
-      "backlink-footprint": {
-        key: "backlink-footprint",
-        score: hasReviewPlatformLink ? 75 : 48,
-        details: `Review/authority platform links detected on page: ${hasReviewPlatformLink}.`,
-        recommendation:
-          "Strengthen authority with review-platform profiles and backlink outreach from relevant industry sources.",
       },
       pagespeed: {
         key: "pagespeed",
@@ -737,12 +1543,54 @@ export async function runAuditJob(auditId: string) {
             ? "Maintain current performance and keep monitoring core vitals."
             : "Optimize LCP assets, reduce layout shifts, and improve interaction responsiveness.",
       },
+      "duplicate-metadata": {
+        key: "duplicate-metadata",
+        score:
+          crawledMetadataPages.length < 5
+            ? 60
+            : duplicateTitles.length === 0 && duplicateDescriptions.length === 0
+              ? 90
+              : duplicateTitles.length <= 1 && duplicateDescriptions.length <= 1
+                ? 65
+                : 42,
+        details: `Pages crawled for metadata: ${crawledMetadataPages.length}. Duplicate title groups: ${
+          duplicateTitles.length
+        } (${formatDuplicateSamples(duplicateTitles)}). Duplicate description groups: ${
+          duplicateDescriptions.length
+        } (${formatDuplicateSamples(duplicateDescriptions)}).`,
+        recommendation:
+          "Make title and meta description copy unique for each indexable page in the sampled set.",
+      },
+      "safe-browsing": {
+        key: "safe-browsing",
+        score: !safeBrowsing.configured ? 60 : safeBrowsing.error ? 55 : safeBrowsing.flagged ? 15 : 95,
+        details: !safeBrowsing.configured
+          ? "Google Safe Browsing API key is not configured."
+          : safeBrowsing.error
+            ? `Safe Browsing check failed: ${safeBrowsing.error}.`
+            : `Safe Browsing flagged URL: ${yesNo(safeBrowsing.flagged)}. Threat types: ${formatList(
+                safeBrowsing.threatTypes,
+                "none",
+              )}.`,
+        recommendation: !safeBrowsing.configured
+          ? "Add GOOGLE_SAFE_BROWSING_API_KEY to enable malware/phishing risk checks."
+          : safeBrowsing.flagged
+            ? "Investigate and remediate malware/phishing risk before indexing and promotion."
+            : "No threat match found. Keep routine security monitoring in place.",
+      },
     };
 
     const effectivePriorityByKey: Record<string, "critical" | "high" | "medium" | "low"> = {
+      canonical: "critical",
       pagespeed: (checksByKey.pagespeed?.score ?? 58) >= 60 ? "medium" : "high",
-      "title-tag": title.toLowerCase().includes(normalizedKeyword) ? "high" : "critical",
+      "title-tag": titleHasKeyword ? "high" : "critical",
       "h1-count": h1ContainsKeyword ? "high" : "critical",
+      "safe-browsing": safeBrowsing.flagged ? "critical" : "high",
+      "indexability-controls": hasNoindex ? "critical" : "high",
+      "http-status-chain": pageProbe.hops >= 3 || pageProbe.usedTemporaryRedirect ? "high" : "medium",
+      "render-blocking-resources": renderBlockingScripts.length >= 3 ? "critical" : "high",
+      "asset-caching-compression":
+        weakCacheAssets.length + uncompressedAssets.length >= 4 ? "high" : "medium",
     };
 
     const weighted = AUDIT_CHECKLIST.map((item) => {

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { requireUserRecord } from "@/lib/auth-user";
 import { prisma } from "@/lib/prisma";
+import { formatKeywordCandidatesAsQuotedList, parseKeywordCandidates } from "@/lib/keyword-match";
+import { isCroAuditKeyword } from "@/lib/audit-mode";
 
 function statusBadge(status: string) {
   if (status === "COMPLETED") return "bg-emerald-50 text-emerald-700";
@@ -14,6 +16,14 @@ export default async function MyAuditsPage() {
   const audits = await prisma.audit.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      status: true,
+      targetKeyword: true,
+      targetUrl: true,
+      score: true,
+      createdAt: true,
+    },
   });
 
   return (
@@ -40,33 +50,41 @@ export default async function MyAuditsPage() {
           {audits.length === 0 ? (
             <p className="text-sm text-[var(--on-surface)]/70">No audits yet.</p>
           ) : (
-            audits.map((audit) => (
-              <Link
-                key={audit.id}
-                href={`/dashboard/audits/${audit.id}`}
-                className="block rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_6%,white)] bg-[var(--surface)] px-4 py-4 transition hover:-translate-y-[1px] hover:bg-[var(--surface-container-low)] hover:shadow-[0_10px_20px_rgba(0,22,57,0.08)]"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p
-                      className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusBadge(audit.status)}`}
-                    >
-                      {audit.status}
-                    </p>
-                    <h3 className="mt-2 font-semibold">{audit.targetKeyword}</h3>
-                    <p className="mt-1 truncate text-sm text-[var(--on-surface)]/70">{audit.targetUrl}</p>
+            audits.map((audit) => {
+              const keywordCandidates = parseKeywordCandidates(audit.targetKeyword);
+              const targetKeywordList = isCroAuditKeyword(audit.targetKeyword)
+                ? "CRO Audit"
+                : formatKeywordCandidatesAsQuotedList(
+                    keywordCandidates.length > 0 ? keywordCandidates : [audit.targetKeyword],
+                  );
+              return (
+                <Link
+                  key={audit.id}
+                  href={`/dashboard/audits/${audit.id}`}
+                  className="block rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_6%,white)] bg-[var(--surface)] px-4 py-4 transition hover:-translate-y-[1px] hover:bg-[var(--surface-container-low)] hover:shadow-[0_10px_20px_rgba(0,22,57,0.08)]"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p
+                        className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusBadge(audit.status)}`}
+                      >
+                        {audit.status}
+                      </p>
+                      <h3 className="mt-2 font-semibold">{targetKeywordList}</h3>
+                      <p className="mt-1 truncate text-sm text-[var(--on-surface)]/70">{audit.targetUrl}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="rounded-lg bg-[var(--surface-container-low)] px-2.5 py-1 text-sm font-bold">
+                        {audit.score ? `${audit.score}/100` : "--"}
+                      </p>
+                      <p className="mt-1 text-xs text-[var(--on-surface)]/58">
+                        {audit.createdAt.toLocaleDateString()}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="rounded-lg bg-[var(--surface-container-low)] px-2.5 py-1 text-sm font-bold">
-                      {audit.score ? `${audit.score}/100` : "--"}
-                    </p>
-                    <p className="mt-1 text-xs text-[var(--on-surface)]/58">
-                      {new Date(audit.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-              </Link>
-            ))
+                </Link>
+              );
+            })
           )}
         </div>
       </section>

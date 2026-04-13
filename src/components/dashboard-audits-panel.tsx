@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { OrderAuditForm } from "@/components/order-audit-form";
+import { formatKeywordCandidatesAsQuotedList, parseKeywordCandidates } from "@/lib/keyword-match";
+import type { AuditType } from "@/lib/audit-mode";
+import { isCroAuditKeyword } from "@/lib/audit-mode";
 
 type AuditItem = {
   id: string;
@@ -20,6 +23,7 @@ type DashboardAuditsPanelProps = {
   availableCredits: string | number;
   auditsOrdered: number;
   auditsCompleted: number;
+  auditType?: AuditType;
 };
 
 function estimateProgress(audit: AuditItem) {
@@ -55,6 +59,7 @@ export function DashboardAuditsPanel({
   availableCredits,
   auditsOrdered,
   auditsCompleted,
+  auditType = "seo",
 }: DashboardAuditsPanelProps) {
   const [audits, setAudits] = useState<AuditItem[]>(initialAudits);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -68,7 +73,7 @@ export function DashboardAuditsPanel({
   const refreshAudits = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const response = await fetch("/api/audits", { cache: "no-store" });
+      const response = await fetch(`/api/audits?type=${auditType}`, { cache: "no-store" });
       if (!response.ok) return;
       const data = (await response.json()) as { audits?: AuditItem[] };
       if (Array.isArray(data.audits)) {
@@ -77,7 +82,7 @@ export function DashboardAuditsPanel({
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [auditType]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -105,6 +110,7 @@ export function DashboardAuditsPanel({
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
       <div className="space-y-5">
         <OrderAuditForm
+          auditType={auditType}
           onCreated={() => {
             void refreshAudits();
           }}
@@ -122,13 +128,20 @@ export function DashboardAuditsPanel({
           <div className="mt-4 space-y-3">
             {audits.length === 0 ? (
               <p className="text-sm text-[var(--on-surface)]/70">
-                No audits yet. Start with your first page and target keyword.
+                No audits yet. Start your first {auditType === "cro" ? "CRO" : "SEO"} audit.
               </p>
             ) : (
               audits.map((audit) => {
                 const progress = estimateProgress(audit);
                 const isActive = audit.status === "QUEUED" || audit.status === "RUNNING";
                 const completedPercent = audit.score ?? 100;
+                const isCro = isCroAuditKeyword(audit.targetKeyword);
+                const keywordCandidates = parseKeywordCandidates(audit.targetKeyword);
+                const targetKeywordList = isCro
+                  ? "CRO Audit"
+                  : formatKeywordCandidatesAsQuotedList(
+                      keywordCandidates.length > 0 ? keywordCandidates : [audit.targetKeyword],
+                    );
 
                 return (
                   <Link
@@ -143,7 +156,7 @@ export function DashboardAuditsPanel({
                         >
                           {audit.status}
                         </p>
-                        <h3 className="mt-2 font-semibold">{audit.targetKeyword}</h3>
+                        <h3 className="mt-2 font-semibold">{targetKeywordList}</h3>
                         <p className="mt-1 truncate text-sm text-[var(--on-surface)]/70">{audit.targetUrl}</p>
                       </div>
                       <p className="rounded-lg bg-[var(--surface-container-low)] px-2.5 py-1 text-sm font-bold">
