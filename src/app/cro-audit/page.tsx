@@ -143,8 +143,8 @@ export default async function CroAuditPage() {
               <ul className="mt-6 space-y-3 text-[16px] leading-snug">
                 {[
                   "Audit delivered in under 10 minutes",
-                  "30+ conversion factors analyzed by AI trained on high-performing funnels",
-                  "Created by conversion professionals with 12+ years of experience",
+                  "20+ conversion factors analyzed by AI trained on high-performing funnels",
+                  "Created by SEO and CRO professionals with 12+ years of experience",
                   "Prioritized optimization list included",
                   "Step-by-step recommendations",
                   "Plain language explanations",
@@ -298,23 +298,6 @@ export default async function CroAuditPage() {
               </article>
             ))}
           </div>
-        </section>
-
-        <section className="mt-14">
-          <article className="grid gap-8 md:grid-cols-[180px_minmax(0,1fr)] md:items-center">
-            <div className="flex justify-center md:justify-start">
-              <div className="h-[156px] w-[156px] overflow-hidden rounded-full border-4 border-white shadow-[0_10px_24px_rgba(0,22,57,0.12)]">
-                <Image src="/alex-founder.png" alt="Alex, Founder of TrafficLift" width={156} height={156} className="h-full w-full object-cover" />
-              </div>
-            </div>
-            <div>
-              <h2 className="font-manrope text-xl font-extrabold tracking-tight text-[var(--primary)]">Making Professional CRO Accessible</h2>
-              <p className="mt-3 max-w-5xl text-[17px] italic leading-relaxed text-[var(--on-surface)]/74 md:text-[18px]">
-                &quot;After 12+ years helping teams improve conversion rates, I saw small businesses being priced out of quality CRO support. TrafficLift CRO was built to deliver clear, revenue-focused audits that teams can act on immediately.&quot;
-              </p>
-              <p className="mt-4 text-[16px] font-extrabold text-[var(--primary)] md:text-[18px]">— Alex, Founder of TrafficLift</p>
-            </div>
-          </article>
         </section>
 
         <section id="case-studies" className="mt-14">
