@@ -39,13 +39,16 @@ export default async function CroAuditPage() {
             </span>
           </p>
           <nav className="hidden items-center gap-8 md:flex">
+            <a href="/#how" className="pb-2 text-sm font-semibold text-[var(--on-surface)]/65">
+              SEO Audit
+            </a>
             <a href="#how" className="border-b-2 border-[#14bf68] pb-2 text-sm font-semibold text-[var(--primary)]">
               CRO Audit
             </a>
-            <a href="#pricing" className="pb-2 text-sm font-semibold text-[var(--on-surface)]/65">
+            <a href="/#pricing" className="pb-2 text-sm font-semibold text-[var(--on-surface)]/65">
               Pricing
             </a>
-            <a href="#case-studies" className="pb-2 text-sm font-semibold text-[var(--on-surface)]/65">
+            <a href="/#case-studies" className="pb-2 text-sm font-semibold text-[var(--on-surface)]/65">
               Our Clients
             </a>
           </nav>
