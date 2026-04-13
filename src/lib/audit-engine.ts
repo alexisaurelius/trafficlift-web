@@ -536,9 +536,17 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     .filter((text) => /(start|get|book|buy|order|trial|sign up|subscribe|shop|audit)/i.test(text));
   const ctaInHero = $("section:first a, section:first button").length > 0;
   const hasPrice = /(\$|€|£)\s?\d+|from\s+\$?\d+/i.test(bodyText);
+  const hasTestimonialSignal = /testimonial|reviews?|rating|trusted by|as seen in|customers? served|backed by/i.test(
+    bodyText,
+  );
+  const hasGuaranteeSignal = /money-back|guarantee|refund|return policy|warranty/i.test(bodyText);
+  const hasSecurePaymentSignal = /secure|ssl|payment|checkout security|encrypted/i.test(bodyText);
+  const hasSupportProofSignal = /support|live chat|contact us|help center|faq/i.test(bodyText);
   const trustSignalsCount = [
-    /testimonial|reviews?|rating|trusted by|as seen in|customers? served|money-back|guarantee/i.test(bodyText),
-    /secure|ssl|payment|refund|return policy|warranty/i.test(bodyText),
+    hasTestimonialSignal,
+    hasGuaranteeSignal,
+    hasSecurePaymentSignal,
+    hasSupportProofSignal,
   ].filter(Boolean).length;
   const navLinks = $("header a").length;
   const hasShopNav = $("header a")
@@ -557,70 +565,74 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
   const checksByKey: Record<string, CheckResult> = {
     "entry-experience": {
       key: "entry-experience",
-      score: popupCount === 0 ? 88 : popupCount <= 1 ? 62 : 40,
+      score: popupCount === 0 ? 86 : popupCount <= 1 ? 48 : 24,
       details: `Popup/modal-like overlays detected: ${popupCount}. Cookie-consent presence detected: ${yesNo(hasCookieBanner)}.`,
       recommendation:
         popupCount > 0
-          ? "Avoid immediate blocking overlays. Trigger popups later in-session and keep one clear CTA."
+          ? "Critical: remove or delay blocking popups until intent/engagement is shown. Keep a single CTA per modal."
           : "Entry experience looks clean. Keep first view focused on value and one next action.",
     },
     "hero-clarity": {
       key: "hero-clarity",
-      score: h1Text.length >= 10 && ctaInHero ? 90 : h1Text.length >= 10 ? 68 : 42,
+      score: h1Text.length >= 10 && ctaInHero ? 88 : h1Text.length >= 10 ? 56 : 28,
       details: `Hero H1: "${displayValue(h1Text)}". Hero CTA detected: ${yesNo(ctaInHero)}.`,
       recommendation:
-        "Use a clear benefit-led headline and keep one strong primary CTA visible above the fold.",
+        "Critical: ensure headline clearly explains what the product is and keep a strong primary CTA visible above the fold.",
     },
     "value-proposition": {
       key: "value-proposition",
-      score: title.length > 20 && description.length > 90 ? 84 : 58,
+      score: title.length > 20 && description.length > 90 ? 82 : 50,
       details: `Title: "${displayValue(title)}". Meta description length: ${description.length}.`,
       recommendation:
         "State your core value proposition earlier and align page messaging with user intent and objections.",
     },
     "cta-audit": {
       key: "cta-audit",
-      score: ctaButtons.length >= 3 ? 86 : ctaButtons.length >= 1 ? 64 : 38,
+      score: ctaButtons.length >= 4 ? 84 : ctaButtons.length >= 2 ? 58 : 26,
       details: `CTA-like elements detected: ${ctaButtons.length}. Sample CTAs: ${formatList(ctaButtons, "none", 4)}.`,
       recommendation:
-        "Place clear action-oriented CTAs at key decision points and keep wording specific to desired outcomes.",
+        "Critical: place clear high-contrast CTAs at decision points and use direct action language tied to outcome.",
     },
     "pricing-transparency": {
       key: "pricing-transparency",
-      score: hasPrice ? 88 : 42,
+      score: hasPrice ? 84 : 22,
       details: `Visible price anchor detected on page text: ${yesNo(hasPrice)}.`,
       recommendation:
         hasPrice
           ? "Keep price anchors visible near CTA blocks to reduce purchase hesitation."
-          : "Add visible pricing or starting-from pricing early to reduce uncertainty and drop-off.",
+          : "Critical: add visible pricing or a clear starting price near hero and CTA sections to reduce uncertainty.",
     },
     "social-proof": {
       key: "social-proof",
-      score: trustSignalsCount >= 2 ? 88 : trustSignalsCount === 1 ? 66 : 40,
-      details: `Trust signal clusters detected: ${trustSignalsCount}.`,
+      score: trustSignalsCount >= 3 ? 86 : trustSignalsCount === 2 ? 60 : trustSignalsCount === 1 ? 36 : 18,
+      details: `Trust signal clusters detected: ${trustSignalsCount}. Testimonials: ${yesNo(
+        hasTestimonialSignal,
+      )}. Guarantees/returns: ${yesNo(hasGuaranteeSignal)}. Secure-payment cues: ${yesNo(
+        hasSecurePaymentSignal,
+      )}.`,
       recommendation:
-        "Add stronger social proof near conversion points (reviews, testimonials, guarantees, and trust badges).",
+        "Critical: add visible testimonials/ratings, guarantee/returns, and payment trust indicators near conversion CTAs.",
     },
     "nav-architecture": {
       key: "nav-architecture",
-      score: navLinks >= 3 && hasShopNav ? 82 : navLinks >= 2 ? 64 : 45,
+      score: navLinks >= 3 && hasShopNav ? 80 : navLinks >= 2 ? 58 : 38,
       details: `Header links detected: ${navLinks}. Conversion-path nav item present: ${yesNo(hasShopNav)}.`,
       recommendation:
         "Keep conversion paths obvious in navigation and include an always-visible action path to purchase/signup.",
     },
     "scroll-experience": {
       key: "scroll-experience",
-      score: hasParallax ? 58 : 82,
+      score: hasParallax ? 50 : 80,
       details: `Potential parallax/scroll-jacking pattern detected: ${yesNo(hasParallax)}.`,
       recommendation:
         "Ensure users can scan quickly without forced scroll behavior and preserve a clear information hierarchy.",
     },
     "funnel-friction": {
       key: "funnel-friction",
-      score: formFieldCount <= 4 ? 84 : formFieldCount <= 8 ? 64 : 44,
+      score: formFieldCount <= 4 ? 82 : formFieldCount <= 8 ? 55 : 30,
       details: `Form fields detected across page: ${formFieldCount}.`,
       recommendation:
-        "Minimize required steps and fields in key conversion flows. Keep only essential input requirements.",
+        "Critical: minimize form and checkout friction by removing non-essential fields and reducing steps.",
     },
     "offer-communication": {
       key: "offer-communication",
@@ -631,7 +643,7 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     },
     "technical-health": {
       key: "technical-health",
-      score: hasSchema && hasOgTitle && hasTwitterCard ? 84 : hasOgTitle ? 66 : 45,
+      score: hasSchema && hasOgTitle && hasTwitterCard ? 82 : hasOgTitle ? 58 : 32,
       details: `Schema present: ${yesNo(hasSchema)}. OG tags present: ${yesNo(hasOgTitle)}. Twitter card present: ${yesNo(
         hasTwitterCard,
       )}.`,
@@ -640,28 +652,28 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     },
     "mobile-experience": {
       key: "mobile-experience",
-      score: hasViewportMeta ? 82 : 48,
+      score: hasViewportMeta ? 80 : 35,
       details: `Viewport meta present: ${yesNo(hasViewportMeta)}.`,
       recommendation:
         "Maintain mobile-first readability, tap target sizing, and friction-free interaction patterns.",
     },
     "support-objections": {
       key: "support-objections",
-      score: hasSupport ? 80 : 52,
+      score: hasSupport ? 78 : 46,
       details: `Support or FAQ signals detected: ${yesNo(hasSupport)}.`,
       recommendation:
         "Expose support channels and objection-handling answers earlier to reduce purchase hesitation.",
     },
     "urgency-incentives": {
       key: "urgency-incentives",
-      score: hasUrgency ? 80 : 55,
+      score: hasUrgency ? 78 : 48,
       details: `Urgency/incentive messaging detected: ${yesNo(hasUrgency)}.`,
       recommendation:
         "Use honest urgency and incentive cues (shipping windows, limited offers, risk reversal) near CTAs.",
     },
     "analytics-tracking": {
       key: "analytics-tracking",
-      score: hasAnalytics ? 88 : 40,
+      score: hasAnalytics ? 84 : 18,
       details: `Tracking scripts/signals detected (GA/GTM/pixel/recording): ${yesNo(hasAnalytics)}.`,
       recommendation:
         hasAnalytics
@@ -676,11 +688,16 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     return { item, check, weightedScore: score * PRIORITY_WEIGHT[item.priority], effectivePriority: item.priority };
   });
   const totalWeight = weighted.reduce((acc, entry) => acc + PRIORITY_WEIGHT[entry.effectivePriority], 0);
-  const score = clamp(
-    Math.round(weighted.reduce((acc, entry) => acc + entry.weightedScore, 0) / totalWeight),
-    20,
-    98,
-  );
+  const baseScore = Math.round(weighted.reduce((acc, entry) => acc + entry.weightedScore, 0) / totalWeight);
+  const criticalPenaltyCount = [
+    popupCount > 0,
+    !ctaInHero,
+    !hasPrice,
+    trustSignalsCount <= 1,
+    !hasAnalytics,
+  ].filter(Boolean).length;
+  const highPenaltyCount = [formFieldCount > 8, !hasSupport, !hasShopNav].filter(Boolean).length;
+  const score = clamp(baseScore - criticalPenaltyCount * 7 - highPenaltyCount * 3, 15, 95);
 
   const checksPayload = CRO_AUDIT_CHECKLIST.map((item) => {
     const check = checksByKey[item.key];
@@ -752,11 +769,11 @@ export async function runAuditJob(auditId: string) {
             completedAt: new Date(),
             reportMarkdown,
             summary:
-              score >= 80
+              score >= 85
                 ? "Strong CRO baseline with selective optimization opportunities."
-                : score >= 60
+                : score >= 65
                   ? "CRO performance is mixed. Address high-priority friction first."
-                  : "Core CRO issues detected. Prioritize critical conversion blockers first.",
+                  : "Critical CRO issues detected. Prioritize conversion blockers immediately.",
           },
         }),
       ]);
