@@ -21,7 +21,7 @@ export default async function Home() {
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-3">
           <p className="font-manrope text-2xl font-extrabold tracking-tight text-[var(--primary)]">
             <span>Traffic</span>
-            <span className="relative inline-block -rotate-6 origin-bottom-left">
+            <span className="relative inline-block -rotate-6 origin-bottom-left text-[#22c55e]">
               Lift
               <svg
                 viewBox="0 0 48 12"
@@ -70,13 +70,13 @@ export default async function Home() {
           </nav>
           <div className="hidden items-center gap-6 md:flex">
             <Link href={userId ? "/dashboard" : "/sign-in"} className="text-sm font-semibold text-[var(--primary)]/75">
-              Login
+              Sign In
             </Link>
             <Link
-              href={userId ? "/dashboard" : "/sign-in"}
+              href={userId ? "/dashboard" : "/sign-up"}
               className="rounded-xl bg-[var(--primary)] px-6 py-2.5 text-sm font-bold text-white"
             >
-              Get Started
+              Sign Up
             </Link>
           </div>
         </div>
@@ -101,7 +101,7 @@ export default async function Home() {
             </p>
             <div className="mt-7 flex justify-center gap-3">
               <Link
-                href="/dashboard"
+                href={userId ? "/dashboard" : "/sign-up"}
                 className="inline-flex items-center justify-center rounded-xl bg-[var(--primary)] px-6 py-3 text-sm font-bold text-white shadow-[0_10px_24px_rgba(0,22,57,0.16)] transition-transform duration-200 hover:scale-[1.05] md:text-base"
               >
                 Get Your SEO Audit
@@ -179,17 +179,17 @@ export default async function Home() {
               </span>
               <h3 className="font-manrope text-[26px] font-extrabold leading-tight">TrafficLift</h3>
               <p className="mt-1 text-base font-bold uppercase tracking-wide text-[#22c55e]">
-                Starting at $8.99
+                Starting at $4.99
               </p>
               <ul className="mt-6 space-y-3 text-[16px] leading-snug">
                 {[
-                  "Audit delivered in under 24 hours",
-                  "50+ ranking factors analyzed by AI trained on real search data",
+                  "Audit delivered in under 10 minutes",
+                  "30+ ranking factors analyzed by AI trained on real search data",
+                  "Created by SEO professionals with 12+ years of experience",
                   "Prioritized fix list included",
                   "Step-by-step recommendations",
                   "Plain language explanations",
-                  "No upsells",
-                  "Created by SEO professionals with 15+ years experience",
+                  "Leading SEO tools are integrated via API, and their cost is already included",
                 ].map((item) => (
                   <li key={item} className="flex items-start gap-3">
                     <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#22c55e] text-xs font-black text-[var(--primary)]">
@@ -200,7 +200,7 @@ export default async function Home() {
                 ))}
               </ul>
               <Link
-                href="/dashboard"
+                href={userId ? "/dashboard" : "/sign-up"}
                 className="mt-8 inline-flex w-full items-center justify-center rounded-2xl bg-[#22c55e] px-5 py-3 text-base font-black text-[var(--primary)] transition-transform duration-200 hover:scale-[1.05]"
               >
                 Get My SEO Audit
@@ -307,7 +307,7 @@ export default async function Home() {
             {[
               {
                 name: "One-Time Audit",
-                price: "$8.99",
+                price: "$4.99",
                 suffix: "/one-time",
                 cta: "Select Basic",
                 dark: false,
@@ -319,7 +319,7 @@ export default async function Home() {
               },
               {
                 name: "Starter Plan",
-                price: "$19.99",
+                price: "$12.99",
                 suffix: "/mo",
                 cta: "Select Starter",
                 badge: "Popular",
@@ -333,7 +333,7 @@ export default async function Home() {
               },
               {
                 name: "Standard Plan",
-                price: "$24",
+                price: "$29.99",
                 suffix: "/mo",
                 cta: "Select Standard",
                 dark: false,
@@ -346,12 +346,12 @@ export default async function Home() {
               },
               {
                 name: "Pro Plan",
-                price: "$49",
+                price: "$49.99",
                 suffix: "/mo",
                 cta: "Select Pro",
                 dark: false,
                 perks: [
-                  "30 audits included",
+                  "20 audits included",
                   "Full audit of your submitted pages",
                   "All audit elements included",
                   "Audits are stored permanently",
@@ -391,7 +391,7 @@ export default async function Home() {
                   ))}
                 </ul>
                 <Link
-                  href="/dashboard/billing"
+                  href={userId ? "/dashboard/billing" : "/sign-up"}
                   className={`mt-6 inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-base font-black ${
                     plan.dark
                       ? "bg-[var(--tertiary-fixed)] text-[var(--primary)]"
@@ -551,7 +551,7 @@ export default async function Home() {
             {[
               {
                 q: "How long does the audit take?",
-                a: "The audit is completed in under 24 hours, including the manual human review phase.",
+                a: "The audit is completed in under 10 minutes, including the review phase.",
               },
               {
                 q: "Will you fix the issues?",
