@@ -73,12 +73,11 @@ export default async function CroAuditPage() {
               <br />
               Are Costing You
               <br />
-              <span className="text-[#25c468]">Cinversions and Revenue</span>
+              <span className="text-[#25c468]">Conversions and Revenue</span>
             </h2>
             <p className="mx-auto mt-5 max-w-xl text-base leading-snug text-[var(--on-surface)]/70 md:text-xl">
-              Get a clear CRO action plan in under 10 minutes. Fix friction,
-              <br />
-              improve user journeys, and increase checkout completion rates.
+              <span className="block md:whitespace-nowrap">Get a clear CRO action plan in under 10 minutes. Fix friction,</span>
+              <span className="block md:whitespace-nowrap">improve user journeys, and increase checkout completion rates.</span>
             </p>
             <div className="mt-7 flex justify-center gap-3">
               <Link
