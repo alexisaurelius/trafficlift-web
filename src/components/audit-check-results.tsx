@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 
-type Category = "On-Page" | "Technical" | "Off-Page" | "Speed" | "Other";
+type Category = "On-Page" | "Technical" | "Performance" | "Authority" | "Other";
 
-const CATEGORY_ORDER: Category[] = ["On-Page", "Technical", "Off-Page", "Speed", "Other"];
+const CATEGORY_ORDER: Category[] = ["On-Page", "Technical", "Performance", "Authority", "Other"];
 
 const CATEGORY_KEY_MAP: Record<Category, string[]> = {
   "On-Page": [
@@ -17,24 +17,62 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "keyword-usage",
     "alt-text",
     "internal-linking",
-    "internal-link-quality",
+    "hero-clarity",
+    "value-proposition",
+    "cta-audit",
+    "sticky-cta",
+    "cta-accessibility",
+    "pricing-transparency",
+    "click-distance",
+    "offer-communication",
+    "offer-clarity",
+    "intent-mismatch",
   ],
   Technical: [
     "structured-data",
     "schema-coverage",
+    "indexability-controls",
+    "http-status-chain",
     "canonical",
     "canonical-consistency",
     "hreflang",
-    "hreflang-consistency",
     "sitemap",
     "sitemap-depth",
+    "duplicate-metadata",
     "robots",
     "robots-ai-policy",
+    "safe-browsing",
     "social-tags",
     "twitter-card-coverage",
+    "internal-links-health",
+    "entry-experience",
+    "funnel-friction",
+    "form-friction-detail",
+    "domain-switch-friction",
+    "technical-health",
+    "mobile-experience",
+    "analytics-tracking",
+    "ab-test-readiness",
+    "nav-architecture",
+    "scroll-experience",
   ],
-  "Off-Page": ["eeat-signals", "author-credibility", "backlink-footprint", "site-architecture"],
-  Speed: ["pagespeed", "image-performance"],
+  Performance: [
+    "pagespeed",
+    "image-performance",
+    "render-blocking-resources",
+    "asset-caching-compression",
+    "third-party-script-weight",
+  ],
+  Authority: [
+    "site-architecture",
+    "eeat-signals",
+    "author-credibility",
+    "social-proof",
+    "trust-cta-proximity",
+    "support-objections",
+    "urgency-incentives",
+    "checkout-confidence",
+  ],
   Other: [],
 };
 
@@ -50,18 +88,25 @@ type CheckItem = {
 
 const TERM_HELP_BY_KEY: Record<string, string> = {
   hreflang: "Hreflang tells Google which language/region version of a page should be shown to users.",
-  "hreflang-consistency": "Checks that language signals are consistent and point to the right default page.",
   canonical: "Canonical URL tells search engines which page version is the primary one to index.",
   "canonical-consistency": "Checks whether canonical tags match the page URL and site structure consistently.",
   "eeat-signals":
     "E-E-A-T means Experience, Expertise, Authoritativeness, and Trustworthiness signals on your site.",
   "schema-coverage": "Schema markup is structured data that helps search engines understand your page content.",
   "structured-data": "Structured data (JSON-LD) enables enhanced search results like FAQs and rich snippets.",
+  "indexability-controls": "Checks noindex/nofollow directives from meta robots and response headers.",
+  "http-status-chain": "Tracks redirect hops and final HTTP status for the audited URL.",
   pagespeed: "Core Web Vitals measure real loading and interaction speed (LCP, CLS, INP).",
   robots: "robots.txt controls which parts of your site search engines can crawl.",
   "robots-ai-policy": "Defines whether AI crawlers are allowed or blocked from your content.",
+  "safe-browsing": "Google Safe Browsing flags potential malware or phishing risks.",
   "twitter-card-coverage": "Twitter card tags control how your page looks when shared on social media.",
   "social-tags": "Open Graph tags control page title/description/image previews on social platforms.",
+  "internal-links-health": "Checks whether linked internal pages return healthy statuses.",
+  "duplicate-metadata": "Detects duplicate title/description patterns across sampled site pages.",
+  "render-blocking-resources": "Flags blocking CSS/JS in <head> that can delay first paint and interactivity.",
+  "asset-caching-compression": "Checks whether core JS/CSS assets are cached and compressed.",
+  "third-party-script-weight": "Tracks external script volume and vendor domains that increase page weight.",
 };
 
 function getCategoryByKey(key: string): Category {
@@ -89,7 +134,6 @@ function groupByCategory(checks: CheckItem[]) {
 
 function statusPill(status: string) {
   if (status === "pass") return "bg-emerald-50 text-emerald-700";
-  if (status === "warning") return "bg-amber-50 text-amber-700";
   return "bg-rose-50 text-rose-700";
 }
 
@@ -100,35 +144,38 @@ function priorityPill(priority: string) {
   return "bg-[var(--surface-container-low)] text-[var(--on-surface)]/80";
 }
 
+function formatDetails(details: string | null) {
+  const value = details ?? "No details provided.";
+  return value.replace(/\. +(?=\S)/g, ".\n");
+}
+
 export function AuditCheckResults({ checks }: { checks: CheckItem[] }) {
   const counts = useMemo(
     () => ({
-      warning: checks.filter((check) => check.status === "warning").length,
+      all: checks.length,
       fail: checks.filter((check) => check.status === "fail").length,
       pass: checks.filter((check) => check.status === "pass").length,
     }),
     [checks],
   );
 
-  const [activeStatus, setActiveStatus] = useState<"warning" | "fail" | "pass">(
-    counts.warning > 0 ? "warning" : counts.fail > 0 ? "fail" : "pass",
-  );
+  const [activeStatus, setActiveStatus] = useState<"all" | "fail" | "pass">("all");
 
   const filteredChecks = useMemo(
-    () => checks.filter((check) => check.status === activeStatus),
+    () => (activeStatus === "all" ? checks : checks.filter((check) => check.status === activeStatus)),
     [checks, activeStatus],
   );
 
   const grouped = useMemo(() => groupByCategory(filteredChecks), [filteredChecks]);
 
-  const filterBtnClass = (status: "warning" | "fail" | "pass") => {
+  const filterBtnClass = (status: "all" | "fail" | "pass") => {
     const base = "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide transition";
     if (status === activeStatus) {
-      if (status === "warning") return `${base} bg-amber-200 text-amber-800`;
+      if (status === "all") return `${base} bg-[var(--primary)] text-white`;
       if (status === "fail") return `${base} bg-rose-200 text-rose-800`;
       return `${base} bg-emerald-200 text-emerald-800`;
     }
-    if (status === "warning") return `${base} bg-amber-50 text-amber-700 hover:bg-amber-100`;
+    if (status === "all") return `${base} bg-[var(--surface-container-low)] text-[var(--on-surface)]/75 hover:bg-[var(--surface-container)]`;
     if (status === "fail") return `${base} bg-rose-50 text-rose-700 hover:bg-rose-100`;
     return `${base} bg-emerald-50 text-emerald-700 hover:bg-emerald-100`;
   };
@@ -137,12 +184,12 @@ export function AuditCheckResults({ checks }: { checks: CheckItem[] }) {
     <article className="rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-6 shadow-[0_12px_40px_rgba(0,22,57,0.06)]">
       <h2 className="font-manrope text-xl font-extrabold">Check Results</h2>
       <p className="mt-1 text-sm text-[var(--on-surface)]/70">
-        Technical breakdown of all checks. Use the filter to focus only on warnings, fails, or passes.
+        Full breakdown of all checks. Use the filter to focus on fails or passes.
       </p>
       <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-[var(--on-surface)]/55">Filter by status</p>
       <div className="mt-2 flex flex-wrap gap-2">
-        <button type="button" onClick={() => setActiveStatus("warning")} className={filterBtnClass("warning")}>
-          {counts.warning} Warnings
+        <button type="button" onClick={() => setActiveStatus("all")} className={filterBtnClass("all")}>
+          {counts.all} All
         </button>
         <button type="button" onClick={() => setActiveStatus("fail")} className={filterBtnClass("fail")}>
           {counts.fail} Fails
@@ -163,7 +210,9 @@ export function AuditCheckResults({ checks }: { checks: CheckItem[] }) {
                 {categoryChecks.map((check) => (
                   <div
                     key={check.id}
-                    className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_6%,white)] bg-[var(--surface)] p-4"
+                    className={`rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_6%,white)] p-4 ${
+                      check.status === "pass" ? "bg-emerald-50/40" : "bg-[var(--surface)]"
+                    }`}
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <p
@@ -186,7 +235,9 @@ export function AuditCheckResults({ checks }: { checks: CheckItem[] }) {
                         {TERM_HELP_BY_KEY[check.key]}
                       </p>
                     ) : null}
-                    <p className="mt-1 text-sm text-[var(--on-surface)]/75">{check.details ?? "No details provided."}</p>
+                    <p className="mt-1 whitespace-pre-line text-sm text-[var(--on-surface)]/75">
+                      {formatDetails(check.details)}
+                    </p>
                     <p className="mt-2 text-sm font-medium text-[var(--primary)]">
                       {check.recommendation ?? "No recommendation provided."}
                     </p>

@@ -307,6 +307,15 @@ function normalizeForDuplicate(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function tokenizeForIntent(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
 function formatDuplicateSamples(duplicates: Array<{ value: string; urls: string[] }>) {
   if (duplicates.length === 0) return "none";
   return duplicates
@@ -529,12 +538,58 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     $('[class*="popup" i], [id*="popup" i], [class*="modal" i], [id*="modal" i], [aria-modal="true"]').length;
   const hasCookieBanner = /(cookie consent|cookie settings|accept cookies)/i.test(bodyText);
   const h1Text = $("h1").first().text().trim();
-  const ctaButtons = $("a,button")
+  const ctaElements = $("a,button")
+    .toArray()
+    .filter((el) => /(start|get|book|buy|order|trial|sign up|subscribe|shop|audit|checkout|pricing)/i.test($(el).text()));
+  const ctaButtons = ctaElements
+    .map((el) => $(el).text().replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const ctaLinkTargets = ctaElements
+    .map((el) => $(el).attr("href") ?? "")
+    .filter(Boolean)
+    .map((href) => safeUrl(href, "https://example.com")?.toString() ?? href);
+  const ctaButtonLikeCount = ctaElements.filter((el) => {
+    const className = ($(el).attr("class") ?? "").toLowerCase();
+    return /(btn|button|rounded|bg-|px-|py-|inline-flex)/i.test(className);
+  }).length;
+  const ctaSmallTextCount = ctaElements.filter((el) => {
+    const className = ($(el).attr("class") ?? "").toLowerCase();
+    return /(text-xs|text-\[10px\]|text-\[11px\])/i.test(className);
+  }).length;
+  const stickyCtaCount = ctaElements.filter((el) => {
+    const className = ($(el).attr("class") ?? "").toLowerCase();
+    return /(sticky|fixed|bottom-0|top-0)/i.test(className);
+  }).length;
+  const ctaWithExternalDomainCount = ctaElements.filter((el) => {
+    const href = $(el).attr("href") ?? "";
+    const resolved = safeUrl(href, "https://example.com");
+    return Boolean(resolved && /^https?:\/\//i.test(href));
+  }).length;
+  const ctaWithCheckoutPathCount = ctaElements.filter((el) => {
+    const href = ($(el).attr("href") ?? "").toLowerCase();
+    return /(checkout|pricing|shop|buy|order|billing|cart)/i.test(href);
+  }).length;
+  const ctaInTrustSectionCount = ctaElements.filter((el) => {
+    const scopeText = $(el).closest("section,article,div").text().replace(/\s+/g, " ");
+    return /(testimonial|review|guarantee|refund|secure|trusted|customers|warranty|return policy)/i.test(scopeText);
+  }).length;
+  const ctaInHero = $("section:first a, section:first button").length > 0;
+  const firstSectionText = $("section").first().text().replace(/\s+/g, " ").trim();
+  const firstSectionHasBenefit = /(increase|improve|grow|faster|results|boost|conversion|revenue)/i.test(firstSectionText);
+  const firstSectionHasGuarantee = /(refund|money-back|guarantee|risk-free|free trial)/i.test(firstSectionText);
+  const firstSectionHasPrice = /(\$|€|£)\s?\d+|from\s+\$?\d+/i.test(firstSectionText);
+  const titleTokens = tokenizeForIntent(title);
+  const h1Tokens = tokenizeForIntent(h1Text);
+  const primaryCtaTokens = tokenizeForIntent(ctaButtons[0] ?? "");
+  const titleH1Overlap = titleTokens.filter((t) => h1Tokens.includes(t)).length;
+  const titleCtaOverlap = titleTokens.filter((t) => primaryCtaTokens.includes(t)).length;
+  const intentMismatchDetected = titleTokens.length > 0 && (titleH1Overlap === 0 || titleCtaOverlap === 0);
+  const ctaButtonsLegacy = $("a,button")
     .toArray()
     .map((el) => $(el).text().replace(/\s+/g, " ").trim())
     .filter(Boolean)
     .filter((text) => /(start|get|book|buy|order|trial|sign up|subscribe|shop|audit)/i.test(text));
-  const ctaInHero = $("section:first a, section:first button").length > 0;
+  const ctaButtonsCount = ctaButtons.length > 0 ? ctaButtons.length : ctaButtonsLegacy.length;
   const hasPrice = /(\$|€|£)\s?\d+|from\s+\$?\d+/i.test(bodyText);
   const hasTestimonialSignal = /testimonial|reviews?|rating|trusted by|as seen in|customers? served|backed by/i.test(
     bodyText,
@@ -554,6 +609,10 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     .some((el) => /(buy|shop|pricing|get started|sign up|checkout)/i.test($(el).text()));
   const hasParallax = /parallax|scroll-jack|scrolljacking/i.test($.html());
   const formFieldCount = $("form input, form select, form textarea").length;
+  const requiredFieldCount = $("form input[required], form select[required], form textarea[required]").length;
+  const optionalFieldCount = Math.max(formFieldCount - requiredFieldCount, 0);
+  const hasInlineErrorSignals =
+    $("[aria-invalid='true'], [role='alert'], .error, [class*='error' i], [class*='invalid' i]").length > 0;
   const hasSchema = $('script[type="application/ld+json"]').length > 0;
   const hasOgTitle = $('meta[property="og:title"]').length > 0;
   const hasTwitterCard = $('meta[name="twitter:card"]').length > 0;
@@ -561,6 +620,15 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
   const hasSupport = /(live chat|chatbot|support@|contact us|help center|faq)/i.test(bodyText);
   const hasUrgency = /(limited|ends soon|today only|free shipping|save \d+%|offer expires)/i.test(bodyText);
   const hasAnalytics = /googletagmanager|gtag\(|dataLayer|fbq\(|clarity|hotjar|analytics/i.test($.html());
+  const domainSwitchCount = [...new Set(
+    $("a[href]")
+      .toArray()
+      .map((el) => $(el).attr("href") ?? "")
+      .map((href) => safeUrl(href, "https://example.com"))
+      .filter((url): url is URL => Boolean(url))
+      .map((url) => url.hostname.toLowerCase()),
+  )].length;
+  const hasConversionSectionStructure = $("section").length >= 6;
 
   const checksByKey: Record<string, CheckResult> = {
     "entry-experience": {
@@ -588,10 +656,33 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     },
     "cta-audit": {
       key: "cta-audit",
-      score: ctaButtons.length >= 4 ? 84 : ctaButtons.length >= 2 ? 58 : 26,
-      details: `CTA-like elements detected: ${ctaButtons.length}. Sample CTAs: ${formatList(ctaButtons, "none", 4)}.`,
+      score: ctaButtonsCount >= 4 ? 84 : ctaButtonsCount >= 2 ? 58 : 26,
+      details: `CTA-like elements detected: ${ctaButtonsCount}. Sample CTAs: ${formatList(ctaButtons, "none", 4)}.`,
       recommendation:
         "Critical: place clear high-contrast CTAs at decision points and use direct action language tied to outcome.",
+    },
+    "sticky-cta": {
+      key: "sticky-cta",
+      score: stickyCtaCount > 0 ? 84 : ctaButtonsCount >= 3 ? 64 : 42,
+      details: `Sticky/fixed CTA-like elements detected: ${stickyCtaCount}.`,
+      recommendation:
+        stickyCtaCount > 0
+          ? "Sticky CTA presence is healthy. Keep it unobtrusive and visible on mobile."
+          : "Add a persistent CTA for long-form pages so ready-to-buy users can act at any point.",
+    },
+    "cta-accessibility": {
+      key: "cta-accessibility",
+      score:
+        ctaButtonsCount === 0
+          ? 30
+          : ctaButtonLikeCount >= Math.ceil(ctaButtonsCount * 0.7) && ctaSmallTextCount === 0
+            ? 82
+            : ctaButtonLikeCount >= Math.ceil(ctaButtonsCount * 0.5)
+              ? 62
+              : 40,
+      details: `CTA elements: ${ctaButtonsCount}. Button-like CTAs: ${ctaButtonLikeCount}. Small-text CTAs: ${ctaSmallTextCount}.`,
+      recommendation:
+        "Ensure primary CTAs are clearly styled as buttons, use readable text sizes, and stay tap-friendly on mobile.",
     },
     "pricing-transparency": {
       key: "pricing-transparency",
@@ -601,6 +692,13 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
         hasPrice
           ? "Keep price anchors visible near CTA blocks to reduce purchase hesitation."
           : "Critical: add visible pricing or a clear starting price near hero and CTA sections to reduce uncertainty.",
+    },
+    "click-distance": {
+      key: "click-distance",
+      score: ctaWithCheckoutPathCount >= 2 ? 84 : ctaWithCheckoutPathCount === 1 ? 64 : 36,
+      details: `CTA links with purchase/pricing intent detected: ${ctaWithCheckoutPathCount}.`,
+      recommendation:
+        "Reduce click distance to pricing/checkout and keep purchase paths visible from the landing page.",
     },
     "social-proof": {
       key: "social-proof",
@@ -612,6 +710,13 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
       )}.`,
       recommendation:
         "Critical: add visible testimonials/ratings, guarantee/returns, and payment trust indicators near conversion CTAs.",
+    },
+    "trust-cta-proximity": {
+      key: "trust-cta-proximity",
+      score: ctaInTrustSectionCount >= 2 ? 82 : ctaInTrustSectionCount === 1 ? 60 : 34,
+      details: `CTA blocks with nearby trust language detected: ${ctaInTrustSectionCount}.`,
+      recommendation:
+        "Place trust proof (reviews, guarantees, security cues) directly adjacent to primary conversion CTAs.",
     },
     "nav-architecture": {
       key: "nav-architecture",
@@ -634,12 +739,65 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
       recommendation:
         "Critical: minimize form and checkout friction by removing non-essential fields and reducing steps.",
     },
+    "form-friction-detail": {
+      key: "form-friction-detail",
+      score:
+        formFieldCount === 0
+          ? 72
+          : requiredFieldCount <= 4 && hasInlineErrorSignals
+            ? 84
+            : requiredFieldCount <= 7
+              ? 64
+              : 42,
+      details: `Form fields: ${formFieldCount}. Required fields: ${requiredFieldCount}. Optional fields: ${optionalFieldCount}. Inline error support detected: ${yesNo(
+        hasInlineErrorSignals,
+      )}.`,
+      recommendation:
+        "Limit required fields, keep optional questions out of critical flow, and provide clear inline validation feedback.",
+    },
+    "domain-switch-friction": {
+      key: "domain-switch-friction",
+      score: domainSwitchCount <= 1 ? 84 : domainSwitchCount === 2 ? 62 : 38,
+      details: `Distinct linked domains detected in conversion paths: ${domainSwitchCount}. External CTA targets: ${ctaWithExternalDomainCount}.`,
+      recommendation:
+        "Avoid cross-domain jumps in checkout flow where possible, or make transitions seamless with strong trust continuity.",
+    },
     "offer-communication": {
       key: "offer-communication",
       score: /features|benefits|compare|faq|how it works/i.test(bodyText) ? 80 : 56,
       details: "Offer communication signals checked for feature context, comparison content, and objection handling.",
       recommendation:
         "Pair feature claims with clear user outcomes and answer common objections near decision points.",
+    },
+    "offer-clarity": {
+      key: "offer-clarity",
+      score:
+        firstSectionHasBenefit && (firstSectionHasPrice || firstSectionHasGuarantee)
+          ? 84
+          : firstSectionHasBenefit
+            ? 62
+            : 36,
+      details: `Hero section signals - benefit-led copy: ${yesNo(firstSectionHasBenefit)}, price anchor: ${yesNo(
+        firstSectionHasPrice,
+      )}, guarantee/risk reversal cue: ${yesNo(firstSectionHasGuarantee)}.`,
+      recommendation:
+        "Clarify offer early: explicit benefit, price anchor, and risk-reversal messaging near the first CTA.",
+    },
+    "checkout-confidence": {
+      key: "checkout-confidence",
+      score: hasGuaranteeSignal && hasSecurePaymentSignal ? 84 : hasGuaranteeSignal || hasSecurePaymentSignal ? 62 : 34,
+      details: `Guarantee/return cues: ${yesNo(hasGuaranteeSignal)}. Secure payment cues: ${yesNo(hasSecurePaymentSignal)}.`,
+      recommendation:
+        "Add shipping, returns, warranty, and payment-safety assurances near purchase actions to improve completion rates.",
+    },
+    "intent-mismatch": {
+      key: "intent-mismatch",
+      score: intentMismatchDetected ? 42 : 82,
+      details: `Intent overlap - title/H1 tokens: ${titleH1Overlap}, title/primary CTA tokens: ${titleCtaOverlap}. Mismatch detected: ${yesNo(
+        intentMismatchDetected,
+      )}.`,
+      recommendation:
+        "Align title, hero headline, and primary CTA so users and traffic sources see one consistent intent path.",
     },
     "technical-health": {
       key: "technical-health",
@@ -680,6 +838,18 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
           ? "Keep conversion events instrumented (view, CTA click, checkout start, purchase) and monitor regularly."
           : "Install analytics and conversion event tracking before scaling CRO tests.",
     },
+    "ab-test-readiness": {
+      key: "ab-test-readiness",
+      score:
+        hasAnalytics && ctaButtonsCount >= 2 && hasConversionSectionStructure
+          ? 82
+          : hasAnalytics && ctaButtonsCount >= 1
+            ? 62
+            : 38,
+      details: `Analytics present: ${yesNo(hasAnalytics)}. CTA count: ${ctaButtonsCount}. Section count: ${$("section").length}.`,
+      recommendation:
+        "Improve test readiness by ensuring event tracking coverage, clear CTA variants, and modular section structure.",
+    },
   };
 
   const weighted = CRO_AUDIT_CHECKLIST.map((item) => {
@@ -695,8 +865,11 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     !hasPrice,
     trustSignalsCount <= 1,
     !hasAnalytics,
+    intentMismatchDetected,
   ].filter(Boolean).length;
-  const highPenaltyCount = [formFieldCount > 8, !hasSupport, !hasShopNav].filter(Boolean).length;
+  const highPenaltyCount = [formFieldCount > 8, !hasSupport, !hasShopNav, ctaInTrustSectionCount === 0, domainSwitchCount > 2].filter(
+    Boolean,
+  ).length;
   const score = clamp(baseScore - criticalPenaltyCount * 7 - highPenaltyCount * 3, 15, 95);
 
   const checksPayload = CRO_AUDIT_CHECKLIST.map((item) => {

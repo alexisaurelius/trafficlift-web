@@ -26,16 +26,40 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "CTA visibility, strength, consistency, and placement along user flow.",
   },
   {
+    key: "sticky-cta",
+    title: "Sticky CTA Presence",
+    priority: "high",
+    description: "Checks whether a persistent CTA remains accessible while users scroll.",
+  },
+  {
+    key: "cta-accessibility",
+    title: "CTA Accessibility and Tap Usability",
+    priority: "high",
+    description: "Checks button-like styling, tap-size readiness, and mobile usability signals.",
+  },
+  {
     key: "pricing-transparency",
     title: "Pricing Transparency",
     priority: "critical",
     description: "Price visibility, click distance to pricing, and anchor framing.",
   },
   {
+    key: "click-distance",
+    title: "Click Distance to Purchase",
+    priority: "high",
+    description: "Measures how quickly users can reach pricing/checkout from landing.",
+  },
+  {
     key: "social-proof",
     title: "Social Proof and Trust Signals",
     priority: "critical",
     description: "Testimonials, ratings, guarantees, trust badges, and credibility cues.",
+  },
+  {
+    key: "trust-cta-proximity",
+    title: "Trust Signals Near CTA",
+    priority: "high",
+    description: "Verifies trust cues are placed close to conversion actions.",
   },
   {
     key: "nav-architecture",
@@ -56,10 +80,40 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Checkout path obstacles, form friction, and conversion blockers.",
   },
   {
+    key: "form-friction-detail",
+    title: "Form Friction Detail",
+    priority: "high",
+    description: "Required-field load, optional-field ratio, and inline validation clarity.",
+  },
+  {
+    key: "domain-switch-friction",
+    title: "Domain Switch Friction",
+    priority: "high",
+    description: "Flags conversion flows that jump domains before checkout completion.",
+  },
+  {
     key: "offer-communication",
     title: "Product and Offer Communication",
     priority: "high",
     description: "Feature context, objection handling, and scannable decision support.",
+  },
+  {
+    key: "offer-clarity",
+    title: "Offer Clarity Score",
+    priority: "high",
+    description: "Checks if price, value, and guarantees are clear in key decision zones.",
+  },
+  {
+    key: "checkout-confidence",
+    title: "Checkout Confidence Signals",
+    priority: "high",
+    description: "Shipping, returns, warranty, and payment-confidence messaging near purchase.",
+  },
+  {
+    key: "intent-mismatch",
+    title: "Intent Mismatch Detector",
+    priority: "high",
+    description: "Compares headline, title, and CTA intent consistency.",
   },
   {
     key: "technical-health",
@@ -90,5 +144,11 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     title: "Analytics and Tracking Foundation",
     priority: "high",
     description: "Core analytics, tag manager, and conversion event instrumentation.",
+  },
+  {
+    key: "ab-test-readiness",
+    title: "A/B Test Readiness",
+    priority: "medium",
+    description: "Assesses whether tracking and page structure are ready for meaningful tests.",
   },
 ];
