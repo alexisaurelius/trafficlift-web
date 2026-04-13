@@ -6,7 +6,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       url: "https://www.trafficlift.ai/",
     },
     {
-      url: "https://www.trafficlift.ai/cro-optimization-agent/",
+      url: "https://www.trafficlift.ai/cro-audit/",
     },
   ];
 }

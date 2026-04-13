@@ -67,7 +67,10 @@ export default async function Home() {
           </p>
           <nav className="hidden items-center gap-8 md:flex">
             <a href="#how" className="border-b-2 border-[#14bf68] pb-2 text-sm font-semibold text-[var(--primary)]">
-              Audit
+              SEO Audit
+            </a>
+            <a href="/cro-audit/" className="pb-2 text-sm font-semibold text-[var(--on-surface)]/65">
+              CRO Audit
             </a>
             <a href="#pricing" className="pb-2 text-sm font-semibold text-[var(--on-surface)]/65">
               Pricing
