@@ -148,7 +148,9 @@ export default async function Home() {
           </div>
         </section>
 
-        <AuditPreviewSection />
+        <div className="-mt-6">
+          <AuditPreviewSection />
+        </div>
 
         <section className="mt-14">
           <h2 className="text-center font-manrope text-4xl font-extrabold tracking-tight text-[var(--primary)]">
