@@ -73,7 +73,7 @@ export default async function Home() {
               Pricing
             </a>
             <a href="#case-studies" className="pb-2 text-sm font-semibold text-[var(--on-surface)]/65">
-              Case Studies
+              Our Clients
             </a>
           </nav>
           <div className="hidden items-center gap-6 md:flex">
