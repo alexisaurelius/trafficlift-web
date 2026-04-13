@@ -76,7 +76,9 @@ export default async function CroAuditPage() {
               <span className="text-[#25c468]">Cinversions and Revenue</span>
             </h2>
             <p className="mx-auto mt-5 max-w-xl text-base leading-snug text-[var(--on-surface)]/70 md:text-xl">
-              Get a clear CRO action plan in under 10 minutes. Fix friction, improve user journeys, and increase checkout completion rates.
+              Get a clear CRO action plan in under 10 minutes. Fix friction,
+              <br />
+              improve user journeys, and increase checkout completion rates.
             </p>
             <div className="mt-7 flex justify-center gap-3">
               <Link
