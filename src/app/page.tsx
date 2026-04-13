@@ -99,7 +99,7 @@ export default async function Home() {
             </p>
             <h1 className="sr-only">TrafficLift - AI SEO Audits On Demand</h1>
             <h2 className="font-manrope relative mx-auto mt-8 max-w-3xl text-4xl font-extrabold leading-[1.06] tracking-tight text-[var(--primary)] md:text-6xl">
-              Find the Issues That
+              Find the Issues That 
               <br />
               Are Costing You
               <br />
