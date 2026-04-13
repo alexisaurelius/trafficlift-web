@@ -46,6 +46,13 @@ function effectivePriorityForCheck(check: { key: string; priority: string; detai
   return pagespeedPriorityFromDetails(check.details) ?? check.priority;
 }
 
+function priorityRank(priority: string) {
+  if (priority === "critical") return 4;
+  if (priority === "high") return 3;
+  if (priority === "medium") return 2;
+  return 1;
+}
+
 async function fetchLiveKeywordCoverage(targetUrl: string, keywordCandidates: string[]) {
   try {
     const response = await fetch(targetUrl, {
@@ -126,6 +133,12 @@ export default async function AuditDetailsPage({
   });
   const passChecks = checksWithEffectivePriority.filter((check) => check.status === "pass");
   const failChecks = checksWithEffectivePriority.filter((check) => check.status === "fail");
+  const topCroRisks =
+    auditType === "cro"
+      ? [...failChecks]
+          .sort((a, b) => priorityRank(b.priority) - priorityRank(a.priority))
+          .slice(0, 3)
+      : [];
   const scoreContext = auditType === "cro" ? getCroScoreContext(score) : getScoreContext(score);
   const scoreColor = score >= 80 ? "#22c55e" : score >= 60 ? "#f59e0b" : "#ef4444";
   const auditedOn = audit.completedAt ?? audit.updatedAt ?? audit.createdAt;
@@ -211,6 +224,24 @@ export default async function AuditDetailsPage({
           </div>
         </div>
       </header>
+
+      {auditType === "cro" ? (
+        <section className="rounded-2xl border border-rose-200 bg-rose-50/60 p-5">
+          <h2 className="font-manrope text-lg font-extrabold text-rose-800">Critical Conversion Risks</h2>
+          {topCroRisks.length === 0 ? (
+            <p className="mt-2 text-sm text-rose-800/85">No critical conversion blockers detected.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {topCroRisks.map((risk) => (
+                <li key={risk.id} className="rounded-xl border border-rose-200 bg-white px-3 py-2">
+                  <p className="text-sm font-semibold text-rose-800">{risk.title}</p>
+                  <p className="mt-1 text-sm text-rose-900/85">{risk.recommendation ?? "Review this item immediately."}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       <AuditTopicPanel
         auditType={auditType}

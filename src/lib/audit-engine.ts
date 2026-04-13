@@ -483,6 +483,12 @@ function formatCroReport(
   score: number,
   checks: Array<{ title: string; priority: string; status: string; details: string; recommendation: string }>,
 ) {
+  const croPriorityRank = (priority: string) => {
+    if (priority === "critical") return 4;
+    if (priority === "high") return 3;
+    if (priority === "medium") return 2;
+    return 1;
+  };
   const byPriority = {
     critical: checks.filter((c) => c.priority === "critical" && c.status !== "pass"),
     high: checks.filter((c) => c.priority === "high" && c.status !== "pass"),
@@ -502,6 +508,19 @@ function formatCroReport(
       ? `Strong conversion baseline with selective optimization opportunities.`
       : `High-impact conversion friction was detected across key decision points.`,
   );
+  const topRisks = checks
+    .filter((c) => c.status !== "pass")
+    .sort((a, b) => croPriorityRank(b.priority) - croPriorityRank(a.priority))
+    .slice(0, 3);
+  lines.push(``);
+  lines.push(`## Critical Conversion Risks`);
+  if (topRisks.length === 0) {
+    lines.push(`- No critical conversion blockers detected.`);
+  } else {
+    topRisks.forEach((risk) => {
+      lines.push(`- ${risk.title}: ${risk.recommendation}`);
+    });
+  }
   lines.push(``);
   lines.push(`## Checks`);
   checks.forEach((check, index) => {
