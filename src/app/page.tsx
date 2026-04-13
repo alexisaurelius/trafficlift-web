@@ -445,7 +445,7 @@ export default async function Home() {
           </article>
         </section>
 
-        <section className="mt-14">
+        <section id="case-studies" className="mt-14">
           <h2 className="text-center font-manrope text-2xl font-extrabold tracking-tight text-[var(--primary)] md:text-3xl">
             What Our Customers Say
           </h2>
