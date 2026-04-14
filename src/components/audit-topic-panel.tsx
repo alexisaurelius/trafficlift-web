@@ -199,7 +199,6 @@ const CRO_TOPICS: TopicConfig[] = [
       "click-distance",
       "funnel-friction",
       "form-friction-detail",
-      "domain-switch-friction",
     ],
     icon: FileText,
   },
@@ -212,7 +211,6 @@ const CRO_TOPICS: TopicConfig[] = [
       "support-objections",
       "urgency-incentives",
       "value-proposition",
-      "offer-clarity",
       "checkout-confidence",
       "intent-mismatch",
     ],
@@ -224,10 +222,8 @@ const CRO_TOPICS: TopicConfig[] = [
     keys: [
       "technical-health",
       "analytics-tracking",
-      "ab-test-readiness",
       "mobile-experience",
       "nav-architecture",
-      "scroll-experience",
       "offer-communication",
     ],
     icon: Settings,
@@ -444,9 +440,11 @@ export function AuditTopicPanel({
                           <span className="font-semibold">Why:</span>{" "}
                           {buildPlainWhy(item, keywordPhrase, resolvedKeywordCandidates.length, auditType)}
                         </p>
-                        <p className="mt-1 whitespace-pre-line text-sm text-[var(--on-surface)]/70">
-                          {formatDetails(item.details)}
-                        </p>
+                        {auditType === "seo" ? (
+                          <p className="mt-1 whitespace-pre-line text-sm text-[var(--on-surface)]/70">
+                            {formatDetails(item.details)}
+                          </p>
+                        ) : null}
                       </li>
                     ))}
                   </ul>

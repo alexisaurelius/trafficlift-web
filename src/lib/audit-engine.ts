@@ -553,20 +553,30 @@ function formatCroReport(
 }
 
 function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: string, description: string) {
-  const popupCount =
-    $('[class*="popup" i], [id*="popup" i], [class*="modal" i], [id*="modal" i], [aria-modal="true"]').length;
-  const hasCookieBanner = /(cookie consent|cookie settings|accept cookies)/i.test(bodyText);
+  const popupCandidates = $('[class*="popup" i], [id*="popup" i], [class*="modal" i], [id*="modal" i], [aria-modal="true"], [role="dialog"]')
+    .toArray()
+    .filter((el) => {
+      const classAndId = `${$(el).attr("class") ?? ""} ${$(el).attr("id") ?? ""}`.toLowerCase();
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+      const hasPopupLanguage = /(popup|modal|subscribe|newsletter|offer|cookie|close|accept|dismiss)/i.test(
+        `${classAndId} ${text}`,
+      );
+      return text.length >= 40 && hasPopupLanguage;
+    });
+  const popupCount = popupCandidates.length;
+  const hasCookieBanner = /(cookie consent|cookie settings|accept cookies|cookie policy)/i.test(bodyText);
   const h1Text = $("h1").first().text().trim();
   const ctaElements = $("a,button")
     .toArray()
-    .filter((el) => /(start|get|book|buy|order|trial|sign up|subscribe|shop|audit|checkout|pricing)/i.test($(el).text()));
+    .filter((el) => $(el).closest("footer").length === 0)
+    .filter((el) => {
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+      if (!text || text.length > 48) return false;
+      return /(get started|get a demo|buy|order|start|sign up|subscribe|shop|audit|checkout|pricing|book)/i.test(text);
+    });
   const ctaButtons = ctaElements
     .map((el) => $(el).text().replace(/\s+/g, " ").trim())
     .filter(Boolean);
-  const ctaLinkTargets = ctaElements
-    .map((el) => $(el).attr("href") ?? "")
-    .filter(Boolean)
-    .map((href) => safeUrl(href, "https://example.com")?.toString() ?? href);
   const ctaButtonLikeCount = ctaElements.filter((el) => {
     const className = ($(el).attr("class") ?? "").toLowerCase();
     return /(btn|button|rounded|bg-|px-|py-|inline-flex)/i.test(className);
@@ -579,11 +589,6 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     const className = ($(el).attr("class") ?? "").toLowerCase();
     return /(sticky|fixed|bottom-0|top-0)/i.test(className);
   }).length;
-  const ctaWithExternalDomainCount = ctaElements.filter((el) => {
-    const href = $(el).attr("href") ?? "";
-    const resolved = safeUrl(href, "https://example.com");
-    return Boolean(resolved && /^https?:\/\//i.test(href));
-  }).length;
   const ctaWithCheckoutPathCount = ctaElements.filter((el) => {
     const href = ($(el).attr("href") ?? "").toLowerCase();
     return /(checkout|pricing|shop|buy|order|billing|cart)/i.test(href);
@@ -592,24 +597,23 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     const scopeText = $(el).closest("section,article,div").text().replace(/\s+/g, " ");
     return /(testimonial|review|guarantee|refund|secure|trusted|customers|warranty|return policy)/i.test(scopeText);
   }).length;
-  const ctaInHero = $("section:first a, section:first button").length > 0;
-  const firstSectionText = $("section").first().text().replace(/\s+/g, " ").trim();
-  const firstSectionHasBenefit = /(increase|improve|grow|faster|results|boost|conversion|revenue)/i.test(firstSectionText);
-  const firstSectionHasGuarantee = /(refund|money-back|guarantee|risk-free|free trial)/i.test(firstSectionText);
-  const firstSectionHasPrice = /(\$|€|£)\s?\d+|from\s+\$?\d+/i.test(firstSectionText);
+  const h1Container = $("h1").first().closest("section,main,article,div");
+  const ctaInHero = h1Container.find("a,button").toArray().some((el) => {
+    const text = $(el).text().replace(/\s+/g, " ").trim();
+    return /(get started|get a demo|buy|order|sign up|trial|audit|pricing|checkout)/i.test(text);
+  });
   const titleTokens = tokenizeForIntent(title);
   const h1Tokens = tokenizeForIntent(h1Text);
   const primaryCtaTokens = tokenizeForIntent(ctaButtons[0] ?? "");
   const titleH1Overlap = titleTokens.filter((t) => h1Tokens.includes(t)).length;
   const titleCtaOverlap = titleTokens.filter((t) => primaryCtaTokens.includes(t)).length;
   const intentMismatchDetected = titleTokens.length > 0 && (titleH1Overlap === 0 || titleCtaOverlap === 0);
-  const ctaButtonsLegacy = $("a,button")
-    .toArray()
-    .map((el) => $(el).text().replace(/\s+/g, " ").trim())
-    .filter(Boolean)
-    .filter((text) => /(start|get|book|buy|order|trial|sign up|subscribe|shop|audit)/i.test(text));
-  const ctaButtonsCount = ctaButtons.length > 0 ? ctaButtons.length : ctaButtonsLegacy.length;
-  const hasPrice = /(\$|€|£)\s?\d+|from\s+\$?\d+/i.test(bodyText);
+  const ctaButtonsCount = [...new Set(ctaButtons.map((text) => text.toLowerCase()))].length;
+  const priceAnchorMatches = bodyText.match(
+    /(from\s*[$€£]\s?\d+(?:\.\d{1,2})?|[$€£]\s?\d+(?:\.\d{1,2})?\s*(?:\/\s?(?:mo|month|yr|year)|per\s?(?:mo|month|year)|monthly|yearly))/gi,
+  );
+  const hasPrice = Boolean(priceAnchorMatches && priceAnchorMatches.length > 0);
+  const priceAnchorSamples = [...new Set((priceAnchorMatches ?? []).map((value) => value.trim()))].slice(0, 4);
   const hasTestimonialSignal = /testimonial|reviews?|rating|trusted by|as seen in|customers? served|backed by/i.test(
     bodyText,
   );
@@ -626,7 +630,6 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
   const hasShopNav = $("header a")
     .toArray()
     .some((el) => /(buy|shop|pricing|get started|sign up|checkout)/i.test($(el).text()));
-  const hasParallax = /parallax|scroll-jack|scrolljacking/i.test($.html());
   const formFieldCount = $("form input, form select, form textarea").length;
   const requiredFieldCount = $("form input[required], form select[required], form textarea[required]").length;
   const optionalFieldCount = Math.max(formFieldCount - requiredFieldCount, 0);
@@ -639,21 +642,12 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
   const hasSupport = /(live chat|chatbot|support@|contact us|help center|faq)/i.test(bodyText);
   const hasUrgency = /(limited|ends soon|today only|free shipping|save \d+%|offer expires)/i.test(bodyText);
   const hasAnalytics = /googletagmanager|gtag\(|dataLayer|fbq\(|clarity|hotjar|analytics/i.test($.html());
-  const domainSwitchCount = [...new Set(
-    $("a[href]")
-      .toArray()
-      .map((el) => $(el).attr("href") ?? "")
-      .map((href) => safeUrl(href, "https://example.com"))
-      .filter((url): url is URL => Boolean(url))
-      .map((url) => url.hostname.toLowerCase()),
-  )].length;
-  const hasConversionSectionStructure = $("section").length >= 6;
 
   const checksByKey: Record<string, CheckResult> = {
     "entry-experience": {
       key: "entry-experience",
-      score: popupCount === 0 ? 86 : popupCount <= 1 ? 48 : 24,
-      details: `Popup/modal-like overlays detected: ${popupCount}. Cookie-consent presence detected: ${yesNo(hasCookieBanner)}.`,
+      score: popupCount === 0 ? 86 : popupCount <= 1 ? 68 : 42,
+      details: `Popup/modal-like overlays detected: ${popupCount}. Cookie-consent presence detected: ${yesNo(hasCookieBanner)}. Cookie banners are treated as normal compliance UI and are not penalized alone.`,
       recommendation:
         popupCount > 0
           ? "Critical: remove or delay blocking popups until intent/engagement is shown. Keep a single CTA per modal."
@@ -694,9 +688,9 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
       score:
         ctaButtonsCount === 0
           ? 30
-          : ctaButtonLikeCount >= Math.ceil(ctaButtonsCount * 0.7) && ctaSmallTextCount === 0
+          : ctaButtonLikeCount >= 2 && ctaSmallTextCount === 0
             ? 82
-            : ctaButtonLikeCount >= Math.ceil(ctaButtonsCount * 0.5)
+            : ctaButtonLikeCount >= 1
               ? 62
               : 40,
       details: `CTA elements: ${ctaButtonsCount}. Button-like CTAs: ${ctaButtonLikeCount}. Small-text CTAs: ${ctaSmallTextCount}.`,
@@ -706,7 +700,10 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     "pricing-transparency": {
       key: "pricing-transparency",
       score: hasPrice ? 84 : 22,
-      details: `Visible price anchor detected on page text: ${yesNo(hasPrice)}.`,
+      details: `Visible price anchor detected on page text: ${yesNo(hasPrice)}. Matched anchors: ${formatList(
+        priceAnchorSamples,
+        "none",
+      )}.`,
       recommendation:
         hasPrice
           ? "Keep price anchors visible near CTA blocks to reduce purchase hesitation."
@@ -744,13 +741,6 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
       recommendation:
         "Keep conversion paths obvious in navigation and include an always-visible action path to purchase/signup.",
     },
-    "scroll-experience": {
-      key: "scroll-experience",
-      score: hasParallax ? 50 : 80,
-      details: `Potential parallax/scroll-jacking pattern detected: ${yesNo(hasParallax)}.`,
-      recommendation:
-        "Ensure users can scan quickly without forced scroll behavior and preserve a clear information hierarchy.",
-    },
     "funnel-friction": {
       key: "funnel-friction",
       score: formFieldCount <= 4 ? 82 : formFieldCount <= 8 ? 55 : 30,
@@ -774,33 +764,12 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
       recommendation:
         "Limit required fields, keep optional questions out of critical flow, and provide clear inline validation feedback.",
     },
-    "domain-switch-friction": {
-      key: "domain-switch-friction",
-      score: domainSwitchCount <= 1 ? 84 : domainSwitchCount === 2 ? 62 : 38,
-      details: `Distinct linked domains detected in conversion paths: ${domainSwitchCount}. External CTA targets: ${ctaWithExternalDomainCount}.`,
-      recommendation:
-        "Avoid cross-domain jumps in checkout flow where possible, or make transitions seamless with strong trust continuity.",
-    },
     "offer-communication": {
       key: "offer-communication",
       score: /features|benefits|compare|faq|how it works/i.test(bodyText) ? 80 : 56,
       details: "Offer communication signals checked for feature context, comparison content, and objection handling.",
       recommendation:
         "Pair feature claims with clear user outcomes and answer common objections near decision points.",
-    },
-    "offer-clarity": {
-      key: "offer-clarity",
-      score:
-        firstSectionHasBenefit && (firstSectionHasPrice || firstSectionHasGuarantee)
-          ? 84
-          : firstSectionHasBenefit
-            ? 62
-            : 36,
-      details: `Hero section signals - benefit-led copy: ${yesNo(firstSectionHasBenefit)}, price anchor: ${yesNo(
-        firstSectionHasPrice,
-      )}, guarantee/risk reversal cue: ${yesNo(firstSectionHasGuarantee)}.`,
-      recommendation:
-        "Clarify offer early: explicit benefit, price anchor, and risk-reversal messaging near the first CTA.",
     },
     "checkout-confidence": {
       key: "checkout-confidence",
@@ -836,7 +805,7 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     },
     "support-objections": {
       key: "support-objections",
-      score: hasSupport ? 78 : 46,
+      score: hasSupport ? 86 : 46,
       details: `Support or FAQ signals detected: ${yesNo(hasSupport)}.`,
       recommendation:
         "Expose support channels and objection-handling answers earlier to reduce purchase hesitation.",
@@ -857,18 +826,6 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
           ? "Keep conversion events instrumented (view, CTA click, checkout start, purchase) and monitor regularly."
           : "Install analytics and conversion event tracking before scaling CRO tests.",
     },
-    "ab-test-readiness": {
-      key: "ab-test-readiness",
-      score:
-        hasAnalytics && ctaButtonsCount >= 2 && hasConversionSectionStructure
-          ? 82
-          : hasAnalytics && ctaButtonsCount >= 1
-            ? 62
-            : 38,
-      details: `Analytics present: ${yesNo(hasAnalytics)}. CTA count: ${ctaButtonsCount}. Section count: ${$("section").length}.`,
-      recommendation:
-        "Improve test readiness by ensuring event tracking coverage, clear CTA variants, and modular section structure.",
-    },
   };
 
   const weighted = CRO_AUDIT_CHECKLIST.map((item) => {
@@ -886,7 +843,7 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     !hasAnalytics,
     intentMismatchDetected,
   ].filter(Boolean).length;
-  const highPenaltyCount = [formFieldCount > 8, !hasSupport, !hasShopNav, ctaInTrustSectionCount === 0, domainSwitchCount > 2].filter(
+  const highPenaltyCount = [formFieldCount > 8, !hasSupport, !hasShopNav, ctaInTrustSectionCount === 0].filter(
     Boolean,
   ).length;
   const score = clamp(baseScore - criticalPenaltyCount * 7 - highPenaltyCount * 3, 15, 95);

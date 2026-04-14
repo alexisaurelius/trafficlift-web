@@ -48,13 +48,10 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "entry-experience",
     "funnel-friction",
     "form-friction-detail",
-    "domain-switch-friction",
     "technical-health",
     "mobile-experience",
     "analytics-tracking",
-    "ab-test-readiness",
     "nav-architecture",
-    "scroll-experience",
   ],
   Performance: [
     "pagespeed",

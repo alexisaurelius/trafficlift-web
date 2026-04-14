@@ -68,12 +68,6 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Conversion path clarity and friction from navigation structure.",
   },
   {
-    key: "scroll-experience",
-    title: "Page Structure and Scroll Experience",
-    priority: "medium",
-    description: "Readability, scan flow, and forced-scroll interactions.",
-  },
-  {
     key: "funnel-friction",
     title: "Funnel Friction Points",
     priority: "critical",
@@ -86,22 +80,10 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Required-field load, optional-field ratio, and inline validation clarity.",
   },
   {
-    key: "domain-switch-friction",
-    title: "Domain Switch Friction",
-    priority: "high",
-    description: "Flags conversion flows that jump domains before checkout completion.",
-  },
-  {
     key: "offer-communication",
     title: "Product and Offer Communication",
     priority: "high",
     description: "Feature context, objection handling, and scannable decision support.",
-  },
-  {
-    key: "offer-clarity",
-    title: "Offer Clarity Score",
-    priority: "high",
-    description: "Checks if price, value, and guarantees are clear in key decision zones.",
   },
   {
     key: "checkout-confidence",
@@ -144,11 +126,5 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     title: "Analytics and Tracking Foundation",
     priority: "high",
     description: "Core analytics, tag manager, and conversion event instrumentation.",
-  },
-  {
-    key: "ab-test-readiness",
-    title: "A/B Test Readiness",
-    priority: "medium",
-    description: "Assesses whether tracking and page structure are ready for meaningful tests.",
   },
 ];
