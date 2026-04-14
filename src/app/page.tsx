@@ -27,7 +27,7 @@ export default async function Home() {
     <div className="min-h-screen bg-[var(--surface)] text-[var(--on-surface)]">
       <header className="border-b border-[color:color-mix(in_oklab,var(--primary)_8%,white)]">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-3">
-          <p className="font-manrope text-2xl font-extrabold tracking-tight text-[var(--primary)]">
+          <Link href="/" className="font-manrope text-2xl font-extrabold tracking-tight text-[var(--primary)]">
             <span>Traffic</span>
             <span className="relative inline-block -rotate-6 origin-bottom-left text-[#22c55e]">
               Lift
@@ -64,7 +64,7 @@ export default async function Home() {
                 />
               </svg>
             </span>
-          </p>
+          </Link>
           <nav className="hidden items-center gap-8 md:flex">
             <a href="#how" className="border-b-2 border-[#14bf68] pb-2 text-sm font-semibold text-[var(--primary)]">
               SEO Audit
