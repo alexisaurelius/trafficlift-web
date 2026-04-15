@@ -562,7 +562,7 @@ function formatCroReport(
   return lines.join("\n");
 }
 
-function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: string, description: string) {
+async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: string, description: string, targetUrl: string) {
   const popupCandidates = $('[class*="popup" i], [id*="popup" i], [class*="modal" i], [id*="modal" i], [aria-modal="true"], [role="dialog"]')
     .toArray()
     .filter((el) => {
@@ -644,12 +644,17 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
   const earlyText = `${heroText} ${earlySectionText}`.replace(/\s+/g, " ").trim();
   const footerText = $("footer").text().replace(/\s+/g, " ").trim();
   const heroCustomerCountMatches = collectMatches(
-    heroText,
-    /(trusted by|used by|customers|businesses|brands|teams).{0,36}(\d[\d,.]*\+|thousands?)/gi,
-    4,
+    earlyText,
+    /((?:trusted by|used by|customers|businesses|brands|teams).{0,48}\d[\d,.]*\+?)|(\d[\d,.]*\+?\s*(?:users?|customers?|businesses|brands|teams)\s+(?:joined|use|using|trust|trusted|served)?)/gi,
+    6,
   );
   const heroCustomerCountSignal = heroCustomerCountMatches.length > 0;
-  const hasAiPromptEarly = /(ask our ai|ai assistant|see if .* right for you|ask ai)/i.test(earlyText);
+  const aiDiscoveryCueMatches = collectMatches(
+    earlyText,
+    /(ask our ai|ai assistant|ask ai|chatgpt|gemini|claude|llm|ai search|optimi[sz]e.*ai|discoverable.*ai|\bai\b.{0,32}(?:search|discover|visibility|agent|beyond))/gi,
+    6,
+  );
+  const hasAiPromptEarly = aiDiscoveryCueMatches.length > 0;
   const heroHasReassuranceMicrocopy = /(no credit card|cancel anytime|full access|risk-free|free trial|no commitment|3 days free|7 days free|14 days free)/i.test(
     heroText,
   );
@@ -687,8 +692,6 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
   const hasOgTitle = Boolean(ogTitleValue);
   const twitterCardValue = $('meta[name="twitter:card"]').attr("content")?.trim() ?? "";
   const hasTwitterCard = Boolean(twitterCardValue);
-  const viewportContent = $('meta[name="viewport"]').attr("content")?.trim() ?? "";
-  const hasViewportMeta = Boolean(viewportContent);
   const hasSupport = /(live chat|chatbot|support@|contact us|help center|faq)/i.test(bodyText);
   const hasFaqHeading = $("h2,h3,h4")
     .toArray()
@@ -725,8 +728,6 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
   );
   const analyticsSignalMatches = collectMatches($.html() ?? "", /googletagmanager|gtag\(|datalayer|fbq\(|clarity|hotjar|analytics/gi, 8);
   const hasAnalytics = analyticsSignalMatches.length > 0;
-  const earlyTrustBadgeMatches = collectMatches(earlyText, /g2|capterra|getapp|trustpilot|as seen in|award|badge/gi, 6);
-  const hasEarlyTrustBadges = earlyTrustBadgeMatches.length > 0;
   const hasProblemFraming = /(spreadsheets?|overkill|manual|slow|inefficient|stockouts?|friction|bottleneck|struggling)/i.test(
     bodyText,
   );
@@ -739,16 +740,35 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
   const hasLiveProductProof = hasLiveTrendLanguage && (viewCountSignals >= 2 || hasProductImageDensity);
   const quantifiedOutcomeCount = (bodyText.match(/(\d{1,3}(?:[.,]\d+)?\s?%|\d+(?:\.\d+)?x|\d+\+|\d+\s?(?:weeks?|months?|days?))/gi) ?? [])
     .length;
-  const integrationMentions = [...new Set(
-    (bodyText.match(/shopify|quickbooks|xero|hubspot|woocommerce|bigcommerce|amazon|api/gi) ?? []).map((v) =>
-      v.toLowerCase(),
-    ),
-  )];
-  const hasIntegrationProof = /integrations?|connect|ecosystem|api/i.test(bodyText) && integrationMentions.length >= 2;
   const readMoreCtaCount = $("a,button")
     .toArray()
     .filter((el) => /^read more\b/i.test($(el).text().replace(/\s+/g, " ").trim())).length;
   const hasWeakReadMorePattern = readMoreCtaCount >= 3;
+  const origin = safeUrl(targetUrl, targetUrl)?.origin ?? "";
+  const pricingPathCandidates = ["/pricing", "/plans", "/prices"];
+  const pricingPageScans = await Promise.all(
+    pricingPathCandidates.map(async (path) => {
+      if (!origin) return { path, fetched: false, hasComparisonSignals: false, hasThreePlusPlans: false };
+      try {
+        const html = await fetchText(`${origin}${path}`);
+        if (!html) return { path, fetched: false, hasComparisonSignals: false, hasThreePlusPlans: false };
+        const page = load(html);
+        const text = page("body").text().replace(/\s+/g, " ").trim();
+        const hasComparisonSignals =
+          page("table").length > 0 ||
+          /(compare plans|compare|which plan|plan comparison|features matrix|side-by-side|pricing table)/i.test(text);
+        const planSignals = (text.match(/\b(plan|starter|standard|pro|premium|enterprise|business|team|basic)\b/gi) ?? []).length;
+        const priceSignals = (text.match(/[$€£]\s?\d+(?:[.,]\d+)?/g) ?? []).length;
+        const hasThreePlusPlans = planSignals >= 3 || priceSignals >= 3;
+        return { path, fetched: true, hasComparisonSignals, hasThreePlusPlans };
+      } catch {
+        return { path, fetched: false, hasComparisonSignals: false, hasThreePlusPlans: false };
+      }
+    }),
+  );
+  const scannedPricingPaths = pricingPageScans.filter((scan) => scan.fetched).map((scan) => scan.path);
+  const comparisonPaths = pricingPageScans.filter((scan) => scan.hasComparisonSignals).map((scan) => scan.path);
+  const threePlusPlanPaths = pricingPageScans.filter((scan) => scan.hasThreePlusPlans).map((scan) => scan.path);
   const pricingSections = $("section,article,div")
     .toArray()
     .filter((el) => /(pricing|plan|billing|subscription)/i.test($(el).text()));
@@ -801,13 +821,36 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
         .toArray()
         .some((el) => actionCtaRegex.test($(el).text().replace(/\s+/g, " ").trim())),
     );
-  const footerCtaTexts = $("footer a, footer button")
-    .toArray()
-    .map((el) => $(el).text().replace(/\s+/g, " ").trim())
-    .filter(Boolean);
+  const footerNode = $("footer").first();
+  const footerDirectCtaTexts = (footerNode.length > 0
+    ? footerNode.find("a,button,[role='button'],input[type='submit'],input[type='button']").toArray()
+    : []
+  )
+    .map((el) => getInteractiveText(el))
+    .filter((text) => actionCtaRegex.test(text));
+  const finalSectionCtaTexts = sectionNodes
+    .slice(-3)
+    .flatMap((section) =>
+      $(section)
+        .find("a,button,[role='button'],input[type='submit'],input[type='button']")
+        .toArray()
+        .map((el) => getInteractiveText(el))
+        .filter((text) => actionCtaRegex.test(text)),
+    );
+  const footerCtaSource = footerDirectCtaTexts.length > 0 ? footerDirectCtaTexts : finalSectionCtaTexts;
+  const footerCtaTexts = [...new Set(footerCtaSource)];
   const footerHasSignIn = footerCtaTexts.some((text) => /(sign in|log in)/i.test(text));
+  const footerScopeText =
+    footerNode.length > 0
+      ? footerText
+      : sectionNodes
+          .slice(-3)
+          .map((section) => $(section).text())
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
   const footerHasContextLine = /(no credit card|cancel anytime|setup in|minutes|risk-free|free trial|no commitment)/i.test(
-    footerText,
+    footerScopeText,
   );
   const hasSecurityComplianceBadge = /(aicpa|soc\s?2?|iso\s?27001|gdpr|compliance|security certified)/i.test(
     footerText,
@@ -870,8 +913,12 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     },
     "hero-ai-prompt": {
       key: "hero-ai-prompt",
-      score: hasAiPromptEarly ? 82 : 56,
-      details: `AI-discovery prompt detected in hero/early section: ${yesNo(hasAiPromptEarly)}.`,
+      score: hasAiPromptEarly ? 84 : 56,
+      details: `AI-discovery cues detected in hero/early section: ${yesNo(hasAiPromptEarly)}. Matched cues: ${formatList(
+        aiDiscoveryCueMatches,
+        "none",
+        5,
+      )}.`,
       recommendation:
         hasAiPromptEarly
           ? "AI discovery prompt is visible early. Keep it concise and tied to user intent."
@@ -947,10 +994,25 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     },
     "pricing-comparison-clarity": {
       key: "pricing-comparison-clarity",
-      score: hasThreePlusPlanSignals && hasPricingTable ? 84 : hasThreePlusPlanSignals ? 48 : 74,
-      details: `3+ plan signals detected: ${yesNo(hasThreePlusPlanSignals)}. Comparison table/matrix detected: ${yesNo(hasPricingTable)}.`,
+      score:
+        (hasThreePlusPlanSignals || threePlusPlanPaths.length > 0) && (hasPricingTable || comparisonPaths.length > 0)
+          ? 84
+          : hasThreePlusPlanSignals || threePlusPlanPaths.length > 0
+            ? scannedPricingPaths.length > 0
+              ? 78
+              : 56
+            : 74,
+      details: `3+ plan signals detected: ${yesNo(
+        hasThreePlusPlanSignals || threePlusPlanPaths.length > 0,
+      )}. Comparison table/matrix detected: ${yesNo(
+        hasPricingTable || comparisonPaths.length > 0,
+      )}. Pricing paths checked: ${formatList(scannedPricingPaths, "none", 3)}. Comparison signals found on: ${formatList(
+        comparisonPaths,
+        "none",
+        3,
+      )}.`,
       recommendation:
-        hasThreePlusPlanSignals && !hasPricingTable
+        (hasThreePlusPlanSignals || threePlusPlanPaths.length > 0) && !(hasPricingTable || comparisonPaths.length > 0)
           ? "For 3+ plans, add clearer side-by-side comparison signals so users can self-qualify quickly."
           : "Pricing comparison clarity looks acceptable for the detected plan structure.",
     },
@@ -963,7 +1025,7 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     },
     "social-proof": {
       key: "social-proof",
-      score: trustSignalsCount >= 3 ? 86 : trustSignalsCount === 2 ? 60 : trustSignalsCount === 1 ? 36 : 18,
+      score: trustSignalsCount >= 2 ? 84 : trustSignalsCount === 1 ? 58 : 24,
       details: `Trust signal clusters detected: ${trustSignalsCount}. Testimonial/review cues: ${formatList(
         testimonialCueMatches,
         "none",
@@ -971,19 +1033,6 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
       )}. Hero customer-count cues: ${formatList(heroCustomerCountMatches, "none", 3)}.`,
       recommendation:
         "Critical: keep visible testimonial/review credibility cues and customer-count proof in key decision sections.",
-    },
-    "early-social-proof-badges": {
-      key: "early-social-proof-badges",
-      score: hasEarlyTrustBadges ? 84 : 48,
-      details: `Early trust badge/award cues near hero detected: ${yesNo(hasEarlyTrustBadges)}. Matched cues: ${formatList(
-        earlyTrustBadgeMatches,
-        "none",
-        5,
-      )}.`,
-      recommendation:
-        hasEarlyTrustBadges
-          ? "Early social proof badges are present. Keep them close to primary conversion actions."
-          : "Add recognizable third-party proof badges (awards/review platforms) near hero CTAs.",
     },
     "testimonial-outcome-quality": {
       key: "testimonial-outcome-quality",
@@ -1037,19 +1086,6 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
       recommendation:
         "Pair feature claims with clear user outcomes and answer common objections near decision points.",
     },
-    "integration-ecosystem-proof": {
-      key: "integration-ecosystem-proof",
-      score: hasIntegrationProof ? 84 : 46,
-      details: `Integration ecosystem signals detected: ${yesNo(hasIntegrationProof)}. Recognized integration mentions: ${formatList(
-        integrationMentions,
-        "none",
-        6,
-      )}.`,
-      recommendation:
-        hasIntegrationProof
-          ? "Integration proof is visible. Keep recognizable partner logos close to integration CTAs."
-          : "Show ecosystem compatibility earlier with recognizable integration names/logos and a clear integrations CTA.",
-    },
     "feature-cta-clarity": {
       key: "feature-cta-clarity",
       score: hasWeakReadMorePattern ? 42 : 80,
@@ -1070,18 +1106,9 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
       recommendation:
         "Implement full metadata coverage (OG, Twitter) and structured data to support discoverability and trust.",
     },
-    "mobile-experience": {
-      key: "mobile-experience",
-      score: hasViewportMeta && ctaButtonsCount >= 2 && buttonLikeCtaCount >= 1 ? 82 : hasViewportMeta ? 64 : 35,
-      details: `Viewport meta present: ${yesNo(hasViewportMeta)} (content: "${displayValue(
-        viewportContent,
-      )}"). CTA-like elements: ${ctaButtonsCount}. Button-like CTAs: ${buttonLikeCtaCount}.`,
-      recommendation:
-        "Maintain mobile-first readability, tap target sizing, and friction-free interaction patterns.",
-    },
     "support-objections": {
       key: "support-objections",
-      score: hasSupport && hasFaqSignals ? 88 : hasSupport ? 68 : 46,
+      score: hasSupport && hasFaqSignals ? 88 : hasSupport ? 82 : 46,
       details: `Support signals detected: ${yesNo(hasSupport)}. Support cues: ${formatList(
         supportCueMatches,
         "none",
@@ -1134,10 +1161,10 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     },
     "footer-cta-clarity": {
       key: "footer-cta-clarity",
-      score: footerHasContextLine ? 82 : footerCtaTexts.length > 0 ? 56 : 68,
+      score: footerHasContextLine ? 82 : footerCtaTexts.length >= 2 ? 80 : footerCtaTexts.length === 1 ? 68 : 56,
       details: `Footer CTA count: ${footerCtaTexts.length}. Footer context/risk-reversal microcopy detected: ${yesNo(
         footerHasContextLine,
-      )}. Sign-in CTA present in footer: ${yesNo(footerHasSignIn)}.`,
+      )}. Footer CTA samples: ${formatList(footerCtaTexts, "none", 4)}. Sign-in CTA present in footer: ${yesNo(footerHasSignIn)}.`,
       recommendation:
         footerHasContextLine
           ? "Footer CTA context is clear. Keep friction-reducing microcopy close to signup action."
@@ -1230,7 +1257,7 @@ export async function runAuditJob(auditId: string) {
       const title = $("title").text().trim();
       const description = $('meta[name="description"]').attr("content") ?? "";
       const bodyText = $("body").text().replace(/\s+/g, " ").trim();
-      const { score, checksPayload } = buildCroChecks($, bodyText, title, description);
+      const { score, checksPayload } = await buildCroChecks($, bodyText, title, description, audit.targetUrl);
       const reportMarkdown = formatCroReport(
         audit.targetUrl,
         score,

@@ -98,12 +98,6 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Testimonials, ratings, customer counts, and credibility cues.",
   },
   {
-    key: "early-social-proof-badges",
-    title: "Early Social Proof Badge Placement",
-    priority: "high",
-    description: "Checks if 3rd-party badges/awards are visible near hero decision points.",
-  },
-  {
     key: "testimonial-outcome-quality",
     title: "Testimonial Outcome Quality",
     priority: "high",
@@ -140,12 +134,6 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Feature context, objection handling, and scannable decision support.",
   },
   {
-    key: "integration-ecosystem-proof",
-    title: "Integration Ecosystem Proof",
-    priority: "high",
-    description: "Checks if integration compatibility is clearly surfaced with recognizable signals.",
-  },
-  {
     key: "feature-cta-clarity",
     title: "Feature CTA Clarity",
     priority: "high",
@@ -156,12 +144,6 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     title: "Technical and Metadata Health",
     priority: "high",
     description: "Meta setup, social tags, schema presence, and client-side stability.",
-  },
-  {
-    key: "mobile-experience",
-    title: "Mobile Conversion Experience",
-    priority: "critical",
-    description: "Tap usability, readability, and mobile friction risks.",
   },
   {
     key: "support-objections",
