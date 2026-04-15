@@ -1217,8 +1217,7 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     !hasAnalytics,
     mixedLanguageLikely || langMismatchLikely,
   ].filter(Boolean).length;
-  const highPenaltyCount = [formFieldCount > 8, !hasSupport, !hasShopNav, hasAbstractPricingModel, faqQuestionCount < 4].filter(Boolean)
-    .length;
+  const highPenaltyCount = [formFieldCount > 8, !hasSupport, !hasShopNav, faqQuestionCount < 4].filter(Boolean).length;
   const score = clamp(baseScore - criticalPenaltyCount * 7 - highPenaltyCount * 3, 15, 95);
 
   const checksPayload = CRO_AUDIT_CHECKLIST.map((item) => {

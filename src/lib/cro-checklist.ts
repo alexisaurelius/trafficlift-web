@@ -38,46 +38,16 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Benefit-led copy, USP clarity, and objection handling in messaging.",
   },
   {
-    key: "problem-framing",
-    title: "Problem Framing Strength",
-    priority: "high",
-    description: "Checks if the page names customer pain clearly before diving into features.",
-  },
-  {
     key: "quantified-outcomes",
     title: "Quantified Outcomes Evidence",
     priority: "high",
     description: "Checks for concrete performance metrics (percentages, multipliers, timelines).",
   },
   {
-    key: "before-after-comparison",
-    title: "Before/After Comparison Clarity",
-    priority: "medium",
-    description: "Checks for explicit pain-vs-outcome comparison framing on-page.",
-  },
-  {
-    key: "live-product-proof",
-    title: "Live Product Proof Signals",
-    priority: "medium",
-    description: "Checks for embedded product evidence (real examples, trend cards, view counts, live outputs).",
-  },
-  {
     key: "cta-audit",
     title: "Call To Action Quality",
     priority: "critical",
     description: "CTA visibility, strength, consistency, and placement along user flow.",
-  },
-  {
-    key: "pricing-model-clarity",
-    title: "Pricing Model Clarity",
-    priority: "high",
-    description: "Flags abstract credit/token models when concrete outcomes/usage are unclear.",
-  },
-  {
-    key: "pricing-plan-positioning",
-    title: "Pricing Plan Positioning",
-    priority: "medium",
-    description: "Checks whether plan names/headings are audience- or outcome-oriented instead of generic.",
   },
   {
     key: "pricing-comparison-clarity",
@@ -98,18 +68,6 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Testimonials, ratings, customer counts, and credibility cues.",
   },
   {
-    key: "testimonial-outcome-quality",
-    title: "Testimonial Outcome Quality",
-    priority: "high",
-    description: "Checks whether testimonials include specific outcomes, names, and roles.",
-  },
-  {
-    key: "testimonial-third-party-verification",
-    title: "Testimonial Third-Party Verification",
-    priority: "high",
-    description: "Checks for external review badges, ratings, or links supporting testimonial credibility.",
-  },
-  {
     key: "nav-architecture",
     title: "Navigation and Information Architecture",
     priority: "high",
@@ -126,12 +84,6 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     title: "Funnel Friction Points",
     priority: "critical",
     description: "Checkout path obstacles, form friction, and conversion blockers.",
-  },
-  {
-    key: "offer-communication",
-    title: "Product and Offer Communication",
-    priority: "high",
-    description: "Feature context, objection handling, and scannable decision support.",
   },
   {
     key: "feature-cta-clarity",
@@ -158,12 +110,6 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Checks FAQ volume for core purchase objections (billing, cancellation, fit, safety).",
   },
   {
-    key: "urgency-incentives",
-    title: "Urgency and Incentive Triggers",
-    priority: "medium",
-    description: "Scarcity, urgency, free shipping, and risk-reversal cues.",
-  },
-  {
     key: "analytics-tracking",
     title: "Analytics and Tracking Foundation",
     priority: "high",
@@ -180,23 +126,5 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     title: "Footer CTA Clarity",
     priority: "medium",
     description: "Checks for contextual microcopy and low-friction framing in footer CTAs.",
-  },
-  {
-    key: "security-compliance-badge",
-    title: "Security/Compliance Badge Presence",
-    priority: "medium",
-    description: "Checks for trust/compliance badges (e.g., SOC/ISO) in late-stage decision zones.",
-  },
-  {
-    key: "founder-credibility-story",
-    title: "Founder/Story Credibility",
-    priority: "medium",
-    description: "Checks whether founder/team story includes concrete credibility signals, not only generic copy.",
-  },
-  {
-    key: "affiliate-program-leverage",
-    title: "Affiliate Program Leverage",
-    priority: "low",
-    description: "Checks whether affiliate/community signals are surfaced beyond the footer.",
   },
 ];
