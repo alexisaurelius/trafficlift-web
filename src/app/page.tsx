@@ -193,7 +193,7 @@ export default async function Home() {
               </span>
               <h3 className="font-manrope text-[26px] font-extrabold leading-tight">TrafficLift</h3>
               <p className="mt-1 text-base font-bold uppercase tracking-wide text-[#22c55e]">
-                Starting at $4.99
+                Starting at $2.99
               </p>
               <ul className="mt-6 space-y-3 text-[16px] leading-snug">
                 {[
@@ -320,8 +320,8 @@ export default async function Home() {
           <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             {[
               {
-                name: "One-Time Audit",
-                price: "$4.99",
+                name: "One-time",
+                price: "$2.99",
                 suffix: "/one-time",
                 cta: "Select Basic",
                 dark: false,
@@ -332,12 +332,11 @@ export default async function Home() {
                 ],
               },
               {
-                name: "Starter Plan",
-                price: "$12.99",
+                name: "Starter plan",
+                price: "$7.99",
                 suffix: "/mo",
                 cta: "Select Starter",
-                badge: "Popular",
-                dark: true,
+                dark: false,
                 perks: [
                   "3 audits included",
                   "Full audit of your submitted pages",
@@ -347,10 +346,11 @@ export default async function Home() {
               },
               {
                 name: "Standard Plan",
-                price: "$29.99",
+                price: "$17.99",
                 suffix: "/mo",
                 cta: "Select Standard",
-                dark: false,
+                badge: "Popular",
+                dark: true,
                 perks: [
                   "10 audits included",
                   "Full audit of your submitted pages",
@@ -360,7 +360,7 @@ export default async function Home() {
               },
               {
                 name: "Pro Plan",
-                price: "$49.99",
+                price: "$34.99",
                 suffix: "/mo",
                 cta: "Select Pro",
                 dark: false,

@@ -47,13 +47,13 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
   {
     key: "keyword-usage",
     title: "Keyword Usage and Density",
-    priority: "medium",
+    priority: "high",
     description: "Exact and partial phrase usage with topical depth.",
   },
   {
     key: "structured-data",
     title: "Structured Data Validity",
-    priority: "critical",
+    priority: "high",
     description: "JSON-LD syntax quality and rich results eligibility.",
   },
   {
@@ -65,7 +65,7 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
   {
     key: "canonical",
     title: "Canonical URL",
-    priority: "high",
+    priority: "critical",
     description: "Canonical consistency and self-reference checks.",
   },
   {
@@ -75,21 +75,27 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Canonical alignment with live URL, host, and preferred path.",
   },
   {
+    key: "indexability-controls",
+    title: "Indexability Controls",
+    priority: "critical",
+    description: "noindex/nofollow directives in meta robots and x-robots-tag headers.",
+  },
+  {
+    key: "http-status-chain",
+    title: "HTTP Status and Redirect Chain",
+    priority: "high",
+    description: "Final status, redirect hop count, and temporary redirect usage.",
+  },
+  {
     key: "hreflang",
     title: "Hreflang and International Signals",
     priority: "medium",
     description: "x-default and locale mapping consistency.",
   },
   {
-    key: "hreflang-consistency",
-    title: "Hreflang Mapping Consistency",
-    priority: "high",
-    description: "x-default target and locale URL alignment with canonical homepage.",
-  },
-  {
     key: "sitemap",
     title: "Sitemap Coverage",
-    priority: "critical",
+    priority: "high",
     description: "Homepage and indexable URLs in sitemap.xml.",
   },
   {
@@ -131,7 +137,7 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
   {
     key: "image-performance",
     title: "Image Loading and Preload Strategy",
-    priority: "high",
+    priority: "medium",
     description: "Lazy loading for below-fold assets and preload hints for LCP images.",
   },
   {
@@ -141,10 +147,10 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Navigation flow and contextual anchor links.",
   },
   {
-    key: "internal-link-quality",
-    title: "Internal Link Quality",
-    priority: "medium",
-    description: "Keyword-relevant anchors and links to strategic content pages.",
+    key: "internal-links-health",
+    title: "Internal Links Health",
+    priority: "high",
+    description: "Broken internal links and excessive redirect chains on linked pages.",
   },
   {
     key: "site-architecture",
@@ -165,15 +171,39 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Named experts, author bylines, and transparent team identity signals.",
   },
   {
-    key: "backlink-footprint",
-    title: "Backlink and Authority Footprint",
-    priority: "medium",
-    description: "External reputation signals and review-platform/link profile indicators.",
-  },
-  {
     key: "pagespeed",
     title: "Page Speed and Core Web Vitals",
     priority: "critical",
     description: "LCP, CLS, INP/FID trend and render performance.",
+  },
+  {
+    key: "render-blocking-resources",
+    title: "Render-Blocking Resources",
+    priority: "high",
+    description: "Blocking CSS/JS patterns that delay first render and interactivity.",
+  },
+  {
+    key: "asset-caching-compression",
+    title: "Asset Caching and Compression",
+    priority: "medium",
+    description: "Cache-control and compression coverage for core JS/CSS assets.",
+  },
+  {
+    key: "third-party-script-weight",
+    title: "Third-Party Script Weight",
+    priority: "medium",
+    description: "External script count and domain footprint affecting load performance.",
+  },
+  {
+    key: "duplicate-metadata",
+    title: "Duplicate Title and Description",
+    priority: "medium",
+    description: "Duplicate metadata patterns across a lightweight sitemap crawl sample.",
+  },
+  {
+    key: "safe-browsing",
+    title: "Google Safe Browsing Risk",
+    priority: "critical",
+    description: "Malware and phishing risk flags from Google Safe Browsing API.",
   },
 ];

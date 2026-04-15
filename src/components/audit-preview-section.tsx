@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Cog, FileText, KeyRound, Link2, Swords } from "lucide-react";
+import { Cog, FileText, Gauge, ShieldCheck } from "lucide-react";
 
-type AuditTab = "on-page" | "keywords" | "backlinks" | "technical" | "competitors";
+type AuditTab = "on-page" | "technical" | "performance" | "authority";
 
 type TabConfig = {
   id: AuditTab;
@@ -41,40 +41,6 @@ const TABS: TabConfig[] = [
     bottomRightBody: "/services/seo-audit-report",
   },
   {
-    id: "keywords",
-    label: "Keywords",
-    icon: KeyRound,
-    topLeftTitle: "PRIMARY KEYWORD",
-    topLeftBody: "seo audit report",
-    topLeftMeta: "density: 0.8%",
-    topRightTitle: "SECONDARY KEYWORDS",
-    topRightBody:
-      "technical seo audit, on-page audit, keyword visibility, search ranking fixes.",
-    progress: 64,
-    bottomLeftTitle: "INTENT MATCH",
-    bottomLeftBody: "Search intent partially aligned with page copy",
-    bottomLeftMeta: "Optimization needed",
-    bottomRightTitle: "CONTENT DEPTH",
-    bottomRightBody: "1,120 words analyzed",
-  },
-  {
-    id: "backlinks",
-    label: "Backlinks",
-    icon: Link2,
-    topLeftTitle: "REFERRING DOMAINS",
-    topLeftBody: "24 active referring domains",
-    topLeftMeta: "quality: mixed",
-    topRightTitle: "ANCHOR DISTRIBUTION",
-    topRightBody:
-      "Branded anchors dominate. Commercial intent anchors remain underutilized for target terms.",
-    progress: 58,
-    bottomLeftTitle: "TOXICITY SIGNAL",
-    bottomLeftBody: "No critical toxic links found",
-    bottomLeftMeta: "Low risk",
-    bottomRightTitle: "LINK GAPS",
-    bottomRightBody: "12 competitor links not acquired",
-  },
-  {
     id: "technical",
     label: "Technical",
     icon: Cog,
@@ -92,21 +58,38 @@ const TABS: TabConfig[] = [
     bottomRightBody: "8 pages indexable, 2 blocked intentionally",
   },
   {
-    id: "competitors",
-    label: "Competitors",
-    icon: Swords,
-    topLeftTitle: "SERP POSITION",
-    topLeftBody: "Current average rank: 19",
-    topLeftMeta: "target keyword set",
-    topRightTitle: "COMPETITOR EDGE",
+    id: "performance",
+    label: "Performance",
+    icon: Gauge,
+    topLeftTitle: "CORE WEB VITALS",
+    topLeftBody: "LCP: 2.1s • CLS: 0.05 • INP: 190ms",
+    topLeftMeta: "mobile + real-user focus",
+    topRightTitle: "RENDER EFFICIENCY",
     topRightBody:
-      "Top ranking pages have deeper topic clusters and stronger backlink velocity in the last 30 days.",
-    progress: 46,
-    bottomLeftTitle: "CONTENT GAP",
-    bottomLeftBody: "Missing 3 high-intent supporting sections",
-    bottomLeftMeta: "Opportunity",
-    bottomRightTitle: "AUTHORITY GAP",
-    bottomRightBody: "Domain authority lag vs top 3 competitors",
+      "Main thread blocking is reduced, but image payload and script hydration still leave room for faster interactions.",
+    progress: 76,
+    bottomLeftTitle: "IMAGE DELIVERY",
+    bottomLeftBody: "Hero image optimized, but several below-fold assets remain uncompressed",
+    bottomLeftMeta: "Medium priority",
+    bottomRightTitle: "LOAD IMPROVEMENTS",
+    bottomRightBody: "Preload the primary visual and lazy-load non-critical media to lift speed scores",
+  },
+  {
+    id: "authority",
+    label: "Authority",
+    icon: ShieldCheck,
+    topLeftTitle: "E-E-A-T SIGNALS",
+    topLeftBody: "Strong attorney profiles and case-result credibility blocks detected",
+    topLeftMeta: "trust profile",
+    topRightTitle: "AUTHOR CREDIBILITY",
+    topRightBody:
+      "Named legal experts, leadership details, and transparent firm identity improve trust and topical authority.",
+    progress: 74,
+    bottomLeftTitle: "REPUTATION SIGNALS",
+    bottomLeftBody: "Industry awards and recognition sections are present",
+    bottomLeftMeta: "High confidence",
+    bottomRightTitle: "AUTHORITY IMPROVEMENTS",
+    bottomRightBody: "Add more first-party proof blocks and client outcome context on key pages",
   },
 ];
 
@@ -117,29 +100,23 @@ const CHIP_SETS: Record<AuditTab, Array<{ label: string; tone: "red" | "gray" | 
     { label: "Image alt missing", tone: "gray" },
     { label: "Schema valid", tone: "green" },
   ],
-  keywords: [
-    { label: "Intent mismatch", tone: "red" },
-    { label: "Keyword spread low", tone: "gray" },
-    { label: "Cannibalization risk", tone: "gray" },
-    { label: "Primary mapped", tone: "green" },
-  ],
-  backlinks: [
-    { label: "Anchor imbalance", tone: "red" },
-    { label: "Low DR links", tone: "gray" },
-    { label: "Gap opportunities", tone: "gray" },
-    { label: "Toxicity low", tone: "green" },
-  ],
   technical: [
     { label: "JSON-LD invalid", tone: "red" },
     { label: "LCP needs work", tone: "gray" },
     { label: "Canonical mismatch", tone: "gray" },
     { label: "Robots valid", tone: "green" },
   ],
-  competitors: [
-    { label: "Authority gap", tone: "red" },
-    { label: "Content depth low", tone: "gray" },
-    { label: "Backlink lag", tone: "gray" },
-    { label: "Gap map ready", tone: "green" },
+  performance: [
+    { label: "Image payload high", tone: "red" },
+    { label: "INP improving", tone: "gray" },
+    { label: "Preload tuning", tone: "gray" },
+    { label: "LCP in range", tone: "green" },
+  ],
+  authority: [
+    { label: "Trust signals mixed", tone: "red" },
+    { label: "Author bios partial", tone: "gray" },
+    { label: "Proof blocks improve", tone: "gray" },
+    { label: "Firm authority strong", tone: "green" },
   ],
 };
 
@@ -155,9 +132,9 @@ export function AuditPreviewSection() {
   const chips = CHIP_SETS[activeTab];
 
   return (
-    <section id="how" className="mt-16">
+    <section id="how" className="mt-10">
       <h2 className="text-center font-manrope text-4xl font-extrabold tracking-tight text-[var(--primary)]">
-        Inside Your SEO Audit Report
+        Inside Your AI SEO Audit Report
       </h2>
       <p className="mx-auto mt-4 max-w-3xl text-center text-lg text-[var(--on-surface)]/70">
         Peek into the granular data we analyze to build your custom growth roadmap.

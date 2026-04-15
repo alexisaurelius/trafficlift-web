@@ -1,5 +1,6 @@
 import { AuditStatus } from "@prisma/client";
-import { load } from "cheerio";
+import { load, type Cheerio } from "cheerio";
+import type { AnyNode } from "domhandler";
 import { prisma } from "@/lib/prisma";
 import { AUDIT_CHECKLIST } from "@/lib/seo-checklist";
 import { CRO_AUDIT_CHECKLIST } from "@/lib/cro-checklist";
@@ -276,6 +277,24 @@ function formatList(values: string[], fallback = "none", limit = 5) {
   return remainder > 0 ? `${shown.join(", ")} (+${remainder} more)` : shown.join(", ");
 }
 
+function collectMatches(text: string, pattern: RegExp, limit = 6) {
+  if (!text) return [];
+  const source = pattern.source;
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const regex = new RegExp(source, flags);
+  const matches = new Set<string>();
+  let current = regex.exec(text);
+
+  while (current) {
+    const value = (current[0] ?? "").replace(/\s+/g, " ").trim();
+    if (value) matches.add(value);
+    if (matches.size >= limit) break;
+    current = regex.exec(text);
+  }
+
+  return [...matches];
+}
+
 function yesNo(value: boolean) {
   return value ? "yes" : "no";
 }
@@ -305,15 +324,6 @@ function parseTitleDescription(html: string) {
 
 function normalizeForDuplicate(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function tokenizeForIntent(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
 }
 
 function formatDuplicateSamples(duplicates: Array<{ value: string; urls: string[] }>) {
@@ -565,89 +575,269 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     });
   const popupCount = popupCandidates.length;
   const hasCookieBanner = /(cookie consent|cookie settings|accept cookies|cookie policy)/i.test(bodyText);
-  const h1Text = $("h1").first().text().trim();
-  const ctaElements = $("a,button")
+  const cookieCueMatches = collectMatches(bodyText, /cookie consent|cookie settings|accept cookies|cookie policy/gi, 5);
+  const cookieUiBlocks = $('[class*="cookie" i], [id*="cookie" i], [data-cookie], [aria-label*="cookie" i]')
+    .toArray()
+    .filter((el) => {
+      const classAndStyle = `${$(el).attr("class") ?? ""} ${$(el).attr("style") ?? ""}`.toLowerCase();
+      return /(fixed|sticky|banner|consent|bottom)/i.test(classAndStyle);
+    }).length;
+  const h1Node = $("h1").first();
+  const h1Text = h1Node.text().trim();
+  const actionCtaRegex = /(get started|get a demo|buy|order|start|sign up|subscribe|shop|audit|checkout|pricing|book|trial|start for free|talk to sales)/i;
+  const getInteractiveText = (el: AnyNode) => {
+    const directText = $(el).text().replace(/\s+/g, " ").trim();
+    const value = ($(el).attr("value") ?? "").replace(/\s+/g, " ").trim();
+    const ariaLabel = ($(el).attr("aria-label") ?? "").replace(/\s+/g, " ").trim();
+    return directText || value || ariaLabel;
+  };
+  const ctaElements = $("a,button,[role='button'],input[type='submit'],input[type='button']")
     .toArray()
     .filter((el) => $(el).closest("footer").length === 0)
     .filter((el) => {
-      const text = $(el).text().replace(/\s+/g, " ").trim();
+      const text = getInteractiveText(el);
       if (!text || text.length > 48) return false;
-      return /(get started|get a demo|buy|order|start|sign up|subscribe|shop|audit|checkout|pricing|book)/i.test(text);
+      return actionCtaRegex.test(text);
     });
   const ctaButtons = ctaElements
-    .map((el) => $(el).text().replace(/\s+/g, " ").trim())
+    .map((el) => getInteractiveText(el))
     .filter(Boolean);
-  const ctaButtonLikeCount = ctaElements.filter((el) => {
+  const buttonLikeCtaCount = ctaElements.filter((el) => {
+    const tagName = (el.tagName ?? "").toLowerCase();
+    const role = ($(el).attr("role") ?? "").toLowerCase();
     const className = ($(el).attr("class") ?? "").toLowerCase();
-    return /(btn|button|rounded|bg-|px-|py-|inline-flex)/i.test(className);
-  }).length;
-  const ctaSmallTextCount = ctaElements.filter((el) => {
-    const className = ($(el).attr("class") ?? "").toLowerCase();
-    return /(text-xs|text-\[10px\]|text-\[11px\])/i.test(className);
-  }).length;
-  const stickyCtaCount = ctaElements.filter((el) => {
-    const className = ($(el).attr("class") ?? "").toLowerCase();
-    return /(sticky|fixed|bottom-0|top-0)/i.test(className);
+    if (tagName === "button" || tagName === "input" || role === "button") return true;
+    return /(btn|button|cta|primary|action)/i.test(className);
   }).length;
   const ctaWithCheckoutPathCount = ctaElements.filter((el) => {
-    const href = ($(el).attr("href") ?? "").toLowerCase();
-    return /(checkout|pricing|shop|buy|order|billing|cart)/i.test(href);
+    const href = ($(el).attr("href") ?? $(el).attr("formaction") ?? "").toLowerCase();
+    return /(checkout|pricing|shop|buy|order|billing|cart|signup|sign-up|register|trial)/i.test(href);
   }).length;
-  const ctaInTrustSectionCount = ctaElements.filter((el) => {
-    const scopeText = $(el).closest("section,article,div").text().replace(/\s+/g, " ");
-    return /(testimonial|review|guarantee|refund|secure|trusted|customers|warranty|return policy)/i.test(scopeText);
-  }).length;
-  const h1Container = $("h1").first().closest("section,main,article,div");
-  const ctaInHero = h1Container.find("a,button").toArray().some((el) => {
-    const text = $(el).text().replace(/\s+/g, " ").trim();
-    return /(get started|get a demo|buy|order|sign up|trial|audit|pricing|checkout)/i.test(text);
-  });
-  const titleTokens = tokenizeForIntent(title);
-  const h1Tokens = tokenizeForIntent(h1Text);
-  const primaryCtaTokens = tokenizeForIntent(ctaButtons[0] ?? "");
-  const titleH1Overlap = titleTokens.filter((t) => h1Tokens.includes(t)).length;
-  const titleCtaOverlap = titleTokens.filter((t) => primaryCtaTokens.includes(t)).length;
-  const intentMismatchDetected = titleTokens.length > 0 && (titleH1Overlap === 0 || titleCtaOverlap === 0);
-  const ctaButtonsCount = [...new Set(ctaButtons.map((text) => text.toLowerCase()))].length;
-  const priceAnchorMatches = bodyText.match(
-    /(from\s*[$€£]\s?\d+(?:\.\d{1,2})?|[$€£]\s?\d+(?:\.\d{1,2})?\s*(?:\/\s?(?:mo|month|yr|year)|per\s?(?:mo|month|year)|monthly|yearly))/gi,
+  const h1PrimaryContainer = h1Node.closest("section,header,main,article");
+  const h1FallbackContainer = h1Node.closest("div");
+  const collectScopeCtas = (scope: Cheerio<AnyNode>) =>
+    scope
+      .find("a,button,[role='button'],input[type='submit'],input[type='button']")
+      .toArray()
+      .map((el) => getInteractiveText(el))
+      .filter((text) => actionCtaRegex.test(text));
+  let heroCtas = collectScopeCtas(h1PrimaryContainer);
+  if (heroCtas.length === 0) {
+    heroCtas = collectScopeCtas(h1FallbackContainer);
+  }
+  if (heroCtas.length === 0) {
+    heroCtas = $("header,section,main,article")
+      .slice(0, 3)
+      .toArray()
+      .flatMap((el) => collectScopeCtas($(el)));
+  }
+  const uniqueHeroCtas = [...new Set(heroCtas.map((text) => text.toLowerCase()))];
+  const hasDualHeroCta = uniqueHeroCtas.length >= 2;
+  const ctaInHero = uniqueHeroCtas.length > 0;
+  const heroTextSource = h1PrimaryContainer.length > 0 ? h1PrimaryContainer : h1FallbackContainer;
+  const heroText = (heroTextSource.length > 0 ? heroTextSource.text() : $("body").text()).replace(/\s+/g, " ").trim();
+  const sectionNodes = $("section").toArray();
+  const earlySectionText = sectionNodes
+    .slice(0, 2)
+    .map((section) => $(section).text())
+    .join(" ");
+  const earlyText = `${heroText} ${earlySectionText}`.replace(/\s+/g, " ").trim();
+  const footerText = $("footer").text().replace(/\s+/g, " ").trim();
+  const heroCustomerCountMatches = collectMatches(
+    heroText,
+    /(trusted by|used by|customers|businesses|brands|teams).{0,36}(\d[\d,.]*\+|thousands?)/gi,
+    4,
   );
-  const hasPrice = Boolean(priceAnchorMatches && priceAnchorMatches.length > 0);
-  const priceAnchorSamples = [...new Set((priceAnchorMatches ?? []).map((value) => value.trim()))].slice(0, 4);
-  const hasTestimonialSignal = /testimonial|reviews?|rating|trusted by|as seen in|customers? served|backed by/i.test(
+  const heroCustomerCountSignal = heroCustomerCountMatches.length > 0;
+  const hasAiPromptEarly = /(ask our ai|ai assistant|see if .* right for you|ask ai)/i.test(earlyText);
+  const heroHasReassuranceMicrocopy = /(no credit card|cancel anytime|full access|risk-free|free trial|no commitment|3 days free|7 days free|14 days free)/i.test(
+    heroText,
+  );
+  const ctaButtonsCount = [...new Set(ctaButtons.map((text) => text.toLowerCase()))].length;
+  const testimonialCueMatches = collectMatches(
+    bodyText,
+    /testimonial|reviews?|rating|trusted by|as seen in|customers? served|backed by|users? joined|customers? joined|case studies?/gi,
+    8,
+  );
+  const hasTestimonialSignal = testimonialCueMatches.length > 0;
+  const supportCueMatches = collectMatches(bodyText, /live chat|chatbot|support@|contact us|help center|faq/gi, 8);
+  const hasSupportProofSignal = supportCueMatches.length > 0;
+  const trustSignalsCount = [hasTestimonialSignal, heroCustomerCountSignal, hasSupportProofSignal].filter(Boolean).length;
+  const headerLinks = $("header a").toArray();
+  const navLinks = headerLinks.length;
+  const navLinkSamples = headerLinks
+    .map((el) => getInteractiveText(el))
+    .filter(Boolean)
+    .slice(0, 8);
+  const hasShopNav = headerLinks.some((el) => /(buy|shop|pricing|get started|sign up|checkout)/i.test($(el).text()));
+  const formFieldCount = $("form input, form select, form textarea").length;
+  const schemaScripts = $('script[type="application/ld+json"]').toArray();
+  const parsedSchemaTypes: string[] = [];
+  schemaScripts.forEach((script) => {
+    try {
+      const parsed = JSON.parse($(script).text()) as unknown;
+      parsedSchemaTypes.push(...collectJsonLdTypes(parsed));
+    } catch {
+      // ignore parse failures in CRO pass and rely on available schema samples
+    }
+  });
+  const schemaTypeSamples = [...new Set(parsedSchemaTypes.map((type) => type.toLowerCase()))].slice(0, 8);
+  const hasSchema = schemaScripts.length > 0;
+  const ogTitleValue = $('meta[property="og:title"]').attr("content")?.trim() ?? "";
+  const hasOgTitle = Boolean(ogTitleValue);
+  const twitterCardValue = $('meta[name="twitter:card"]').attr("content")?.trim() ?? "";
+  const hasTwitterCard = Boolean(twitterCardValue);
+  const viewportContent = $('meta[name="viewport"]').attr("content")?.trim() ?? "";
+  const hasViewportMeta = Boolean(viewportContent);
+  const hasSupport = /(live chat|chatbot|support@|contact us|help center|faq)/i.test(bodyText);
+  const hasFaqHeading = $("h2,h3,h4")
+    .toArray()
+    .some((el) => /(faq|frequently asked|questions)/i.test($(el).text()));
+  const faqHeadingSamples = $("h2,h3,h4")
+    .toArray()
+    .map((el) => $(el).text().replace(/\s+/g, " ").trim())
+    .filter((text) => /(faq|frequently asked|questions)/i.test(text))
+    .slice(0, 5);
+  const hasFaqQuestionSet = $("details summary")
+    .toArray()
+    .filter((el) => /\?$/.test($(el).text().trim())).length >= 3;
+  const hasFaqSignals = hasFaqHeading || hasFaqQuestionSet;
+  const faqQuestionCount = $("section,article,div")
+    .toArray()
+    .filter((el) => /(faq|frequently asked|questions)/i.test($(el).text()))
+    .flatMap((el) => {
+      const section = $(el);
+      const detailQuestions = section
+        .find("details summary")
+        .toArray()
+        .map((node) => $(node).text().trim())
+        .filter((text) => text.endsWith("?"));
+      const headingQuestions = section
+        .find("h3,h4,p,li")
+        .toArray()
+        .map((node) => $(node).text().replace(/\s+/g, " ").trim())
+        .filter((text) => /\?$/.test(text));
+      return [...detailQuestions, ...headingQuestions];
+    }).length;
+  const hasUrgency = /(limited|ends soon|today only|free shipping|save \d+%|offer expires)/i.test(bodyText);
+  const hasRiskReversal = /(no credit card|cancel anytime|free trial|risk-free|money-back|no commitment|guarantee)/i.test(
     bodyText,
   );
-  const hasGuaranteeSignal = /money-back|guarantee|refund|return policy|warranty/i.test(bodyText);
-  const hasSecurePaymentSignal = /secure|ssl|payment|checkout security|encrypted/i.test(bodyText);
-  const hasSupportProofSignal = /support|live chat|contact us|help center|faq/i.test(bodyText);
-  const trustSignalsCount = [
-    hasTestimonialSignal,
-    hasGuaranteeSignal,
-    hasSecurePaymentSignal,
-    hasSupportProofSignal,
-  ].filter(Boolean).length;
-  const navLinks = $("header a").length;
-  const hasShopNav = $("header a")
+  const analyticsSignalMatches = collectMatches($.html() ?? "", /googletagmanager|gtag\(|datalayer|fbq\(|clarity|hotjar|analytics/gi, 8);
+  const hasAnalytics = analyticsSignalMatches.length > 0;
+  const earlyTrustBadgeMatches = collectMatches(earlyText, /g2|capterra|getapp|trustpilot|as seen in|award|badge/gi, 6);
+  const hasEarlyTrustBadges = earlyTrustBadgeMatches.length > 0;
+  const hasProblemFraming = /(spreadsheets?|overkill|manual|slow|inefficient|stockouts?|friction|bottleneck|struggling)/i.test(
+    bodyText,
+  );
+  const hasBeforeAfterComparison = /(without|with|before|after|vs\.?)/i.test(bodyText) && /(seconds?|minutes?|hours?|days?)/i.test(
+    bodyText,
+  );
+  const hasLiveTrendLanguage = /(live trends?|trending|viral|top posts?|view count|real-time)/i.test(bodyText);
+  const viewCountSignals = (bodyText.match(/\b\d+(?:[.,]\d+)?\s?(?:k|m|b)?\s?(?:views?|watches?)\b/gi) ?? []).length;
+  const hasProductImageDensity = $("img").length >= 8;
+  const hasLiveProductProof = hasLiveTrendLanguage && (viewCountSignals >= 2 || hasProductImageDensity);
+  const quantifiedOutcomeCount = (bodyText.match(/(\d{1,3}(?:[.,]\d+)?\s?%|\d+(?:\.\d+)?x|\d+\+|\d+\s?(?:weeks?|months?|days?))/gi) ?? [])
+    .length;
+  const integrationMentions = [...new Set(
+    (bodyText.match(/shopify|quickbooks|xero|hubspot|woocommerce|bigcommerce|amazon|api/gi) ?? []).map((v) =>
+      v.toLowerCase(),
+    ),
+  )];
+  const hasIntegrationProof = /integrations?|connect|ecosystem|api/i.test(bodyText) && integrationMentions.length >= 2;
+  const readMoreCtaCount = $("a,button")
     .toArray()
-    .some((el) => /(buy|shop|pricing|get started|sign up|checkout)/i.test($(el).text()));
-  const formFieldCount = $("form input, form select, form textarea").length;
-  const requiredFieldCount = $("form input[required], form select[required], form textarea[required]").length;
-  const optionalFieldCount = Math.max(formFieldCount - requiredFieldCount, 0);
-  const hasInlineErrorSignals =
-    $("[aria-invalid='true'], [role='alert'], .error, [class*='error' i], [class*='invalid' i]").length > 0;
-  const hasSchema = $('script[type="application/ld+json"]').length > 0;
-  const hasOgTitle = $('meta[property="og:title"]').length > 0;
-  const hasTwitterCard = $('meta[name="twitter:card"]').length > 0;
-  const hasViewportMeta = $('meta[name="viewport"]').length > 0;
-  const hasSupport = /(live chat|chatbot|support@|contact us|help center|faq)/i.test(bodyText);
-  const hasUrgency = /(limited|ends soon|today only|free shipping|save \d+%|offer expires)/i.test(bodyText);
-  const hasAnalytics = /googletagmanager|gtag\(|dataLayer|fbq\(|clarity|hotjar|analytics/i.test($.html());
+    .filter((el) => /^read more\b/i.test($(el).text().replace(/\s+/g, " ").trim())).length;
+  const hasWeakReadMorePattern = readMoreCtaCount >= 3;
+  const pricingSections = $("section,article,div")
+    .toArray()
+    .filter((el) => /(pricing|plan|billing|subscription)/i.test($(el).text()));
+  const pricingSectionText = pricingSections
+    .slice(0, 4)
+    .map((el) => $(el).text())
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const energyModelMentions = (pricingSectionText.match(/\b(energy|credits?|tokens?|points?)\b/gi) ?? []).length;
+  const pricingOutcomeAnchors = (pricingSectionText.match(/\b(videos?|requests?|analyses?|posts?|teams?|seats?|users?)\b/gi) ?? [])
+    .length;
+  const hasAbstractPricingModel = energyModelMentions >= 2 && pricingOutcomeAnchors < 3;
+  const genericPlanNameCount = (pricingSectionText.match(/\b(light|standard|business|basic|pro|starter|premium)\b/gi) ?? [])
+    .length;
+  const audiencePlanNameCount = (pricingSectionText.match(/\b(solo|creator|agency|team|enterprise|brand|growing)\b/gi) ?? [])
+    .length;
+  const hasPricingTable = $("table")
+    .toArray()
+    .some((el) => /(plan|pricing|features?|compare|included)/i.test($(el).text()));
+  const estimatedPlanCount = $("section,article,div")
+    .toArray()
+    .filter((el) => /(\/month|\/mo|monthly|yearly|per month|start for free|get started)/i.test($(el).text())).length;
+  const hasThreePlusPlanSignals = estimatedPlanCount >= 3 || genericPlanNameCount >= 3;
+  const testimonialSectionText = $("section,article,div")
+    .toArray()
+    .filter((el) => /(testimonial|case stud|what .* say|customer)/i.test($(el).text()))
+    .slice(0, 6)
+    .map((el) => $(el).text())
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const testimonialOutcomeSignalCount = (testimonialSectionText.match(/(\d{1,3}(?:[.,]\d+)?\s?%|\d+(?:\.\d+)?x|\$\d[\d,]*(?:\+\s*)?)/gi) ?? [])
+    .length;
+  const testimonialNodes = $("section,article,div")
+    .toArray()
+    .filter((el) => /(testimonial|case stud|what .* say|customer|review)/i.test($(el).text()));
+  const hasThirdPartyReviewBadge = /(g2|trustpilot|capterra|getapp|product hunt|google reviews?|appsumo|clutch)/i.test(
+    testimonialSectionText,
+  );
+  const testimonialExternalReviewLinks = testimonialNodes
+    .flatMap((el) => $(el).find("a[href]").toArray())
+    .map((el) => $(el).attr("href") ?? "")
+    .filter((href) => /trustpilot|g2|capterra|getapp|producthunt|google/i.test(href)).length;
+  const hasBottomCta = sectionNodes
+    .slice(-2)
+    .some((section) =>
+      $(section)
+        .find("a,button")
+        .toArray()
+        .some((el) => actionCtaRegex.test($(el).text().replace(/\s+/g, " ").trim())),
+    );
+  const footerCtaTexts = $("footer a, footer button")
+    .toArray()
+    .map((el) => $(el).text().replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const footerHasSignIn = footerCtaTexts.some((text) => /(sign in|log in)/i.test(text));
+  const footerHasContextLine = /(no credit card|cancel anytime|setup in|minutes|risk-free|free trial|no commitment)/i.test(
+    footerText,
+  );
+  const hasSecurityComplianceBadge = /(aicpa|soc\s?2?|iso\s?27001|gdpr|compliance|security certified)/i.test(
+    footerText,
+  );
+  const storySectionText = $("section,article,div")
+    .toArray()
+    .filter((el) => /(our story|about|founder|team|mission)/i.test($(el).text()))
+    .slice(0, 5)
+    .map((el) => $(el).text())
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const storyLength = storySectionText.length;
+  const storyCredibilitySignals = (storySectionText.match(/\b(founder|years?|experience|built|background|ceo|co-founder|worked|launched)\b/gi) ?? [])
+    .length;
+  const hasAffiliateSignal = /\baffiliate\b/i.test(bodyText);
+  const affiliateInFooterOnly = hasAffiliateSignal && !/(affiliate)/i.test(bodyText.replace(footerText, ""));
+  const cyrillicChars = (bodyText.match(/[А-Яа-яЁё]/g) ?? []).length;
+  const latinChars = (bodyText.match(/[A-Za-z]/g) ?? []).length;
+  const htmlLang = ($("html").attr("lang") ?? "").toLowerCase();
+  const mixedLanguageLikely = cyrillicChars >= 80 && latinChars >= 300 && cyrillicChars / Math.max(latinChars, 1) > 0.1;
+  const langMismatchLikely = htmlLang.startsWith("en") && cyrillicChars > latinChars * 0.2;
 
   const checksByKey: Record<string, CheckResult> = {
     "entry-experience": {
       key: "entry-experience",
       score: popupCount === 0 ? 86 : popupCount <= 1 ? 68 : 42,
-      details: `Popup/modal-like overlays detected: ${popupCount}. Cookie-consent presence detected: ${yesNo(hasCookieBanner)}. Cookie banners are treated as normal compliance UI and are not penalized alone.`,
+      details: `Popup/modal-like overlays detected: ${popupCount}. Cookie-consent presence detected: ${yesNo(
+        hasCookieBanner,
+      )}. Cookie cues matched: ${formatList(cookieCueMatches, "none", 4)}. Fixed/sticky cookie UI blocks detected: ${cookieUiBlocks}. Cookie banners are treated as normal compliance UI and are not penalized alone.`,
       recommendation:
         popupCount > 0
           ? "Critical: remove or delay blocking popups until intent/engagement is shown. Keep a single CTA per modal."
@@ -656,9 +846,36 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     "hero-clarity": {
       key: "hero-clarity",
       score: h1Text.length >= 10 && ctaInHero ? 88 : h1Text.length >= 10 ? 56 : 28,
-      details: `Hero H1: "${displayValue(h1Text)}". Hero CTA detected: ${yesNo(ctaInHero)}.`,
+      details: `Hero H1: "${displayValue(h1Text)}". Hero CTA detected: ${yesNo(ctaInHero)}. Hero CTA samples: ${formatList(uniqueHeroCtas, "none", 4)}.`,
       recommendation:
         "Critical: ensure headline clearly explains what the product is and keep a strong primary CTA visible above the fold.",
+    },
+    "hero-dual-cta": {
+      key: "hero-dual-cta",
+      score: hasDualHeroCta ? 86 : ctaInHero ? 58 : 34,
+      details: `Unique hero CTA variants detected: ${uniqueHeroCtas.length}. Hero CTAs: ${formatList(uniqueHeroCtas, "none", 4)}.`,
+      recommendation:
+        hasDualHeroCta
+          ? "Dual CTA strategy is present. Keep primary vs secondary action hierarchy visually clear."
+          : "Add complementary hero CTAs (e.g., self-serve + assisted/demo) to capture different buyer intent stages.",
+    },
+    "cta-microcopy-reassurance": {
+      key: "cta-microcopy-reassurance",
+      score: heroHasReassuranceMicrocopy ? 88 : 46,
+      details: `Risk-reversal microcopy near hero CTA detected: ${yesNo(heroHasReassuranceMicrocopy)}.`,
+      recommendation:
+        heroHasReassuranceMicrocopy
+          ? "Keep reassurance microcopy directly below hero CTA and concise."
+          : "Add brief reassurance copy under hero CTA (no credit card, free trial window, cancel anytime).",
+    },
+    "hero-ai-prompt": {
+      key: "hero-ai-prompt",
+      score: hasAiPromptEarly ? 82 : 56,
+      details: `AI-discovery prompt detected in hero/early section: ${yesNo(hasAiPromptEarly)}.`,
+      recommendation:
+        hasAiPromptEarly
+          ? "AI discovery prompt is visible early. Keep it concise and tied to user intent."
+          : "Consider an above-the-fold AI guidance prompt for uncertain visitors to reduce early drop-off.",
     },
     "value-proposition": {
       key: "value-proposition",
@@ -667,47 +884,75 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
       recommendation:
         "State your core value proposition earlier and align page messaging with user intent and objections.",
     },
+    "problem-framing": {
+      key: "problem-framing",
+      score: hasProblemFraming ? 84 : 52,
+      details: `Problem-framing language detected: ${yesNo(hasProblemFraming)}.`,
+      recommendation:
+        hasProblemFraming
+          ? "Problem framing is present. Keep connecting pain points to specific outcomes."
+          : "Add a clear pain-point section early (before deep feature details) to frame urgency and relevance.",
+    },
+    "quantified-outcomes": {
+      key: "quantified-outcomes",
+      score: quantifiedOutcomeCount >= 4 ? 86 : quantifiedOutcomeCount >= 2 ? 66 : 42,
+      details: `Quantified outcome cues detected: ${quantifiedOutcomeCount}.`,
+      recommendation:
+        quantifiedOutcomeCount >= 2
+          ? "Keep quantified outcomes near CTAs and feature claims to reinforce credibility."
+          : "Add concrete proof points (% uplift, time-to-value, implementation timelines) in key decision sections.",
+    },
+    "before-after-comparison": {
+      key: "before-after-comparison",
+      score: hasBeforeAfterComparison ? 82 : 56,
+      details: `Before/after or with/without comparison framing detected: ${yesNo(hasBeforeAfterComparison)}.`,
+      recommendation:
+        hasBeforeAfterComparison
+          ? "Comparison framing is present. Keep it outcome-specific and concise."
+          : "Add a clear before/after (or with/without) comparison block to make value contrast immediate.",
+    },
+    "live-product-proof": {
+      key: "live-product-proof",
+      score: hasLiveProductProof ? 84 : 54,
+      details: `Live trend/product-proof signals detected: ${yesNo(hasLiveProductProof)}. View-count cues: ${viewCountSignals}.`,
+      recommendation:
+        hasLiveProductProof
+          ? "Live product proof is visible. Keep examples fresh and clearly labeled."
+          : "Add a visible product-proof block (live examples, outputs, trend cards, or real result snapshots) before signup.",
+    },
     "cta-audit": {
       key: "cta-audit",
       score: ctaButtonsCount >= 4 ? 84 : ctaButtonsCount >= 2 ? 58 : 26,
-      details: `CTA-like elements detected: ${ctaButtonsCount}. Sample CTAs: ${formatList(ctaButtons, "none", 4)}.`,
+      details: `CTA-like elements detected: ${ctaButtonsCount}. Button-like CTA elements: ${buttonLikeCtaCount}. Sample CTAs: ${formatList(ctaButtons, "none", 6)}.`,
       recommendation:
         "Critical: place clear high-contrast CTAs at decision points and use direct action language tied to outcome.",
     },
-    "sticky-cta": {
-      key: "sticky-cta",
-      score: stickyCtaCount > 0 ? 84 : ctaButtonsCount >= 3 ? 64 : 42,
-      details: `Sticky/fixed CTA-like elements detected: ${stickyCtaCount}.`,
+    "pricing-model-clarity": {
+      key: "pricing-model-clarity",
+      score: hasAbstractPricingModel ? 36 : 82,
+      details: `Abstract pricing-unit mentions (credits/tokens/energy): ${energyModelMentions}. Outcome-based usage anchors: ${pricingOutcomeAnchors}.`,
       recommendation:
-        stickyCtaCount > 0
-          ? "Sticky CTA presence is healthy. Keep it unobtrusive and visible on mobile."
-          : "Add a persistent CTA for long-form pages so ready-to-buy users can act at any point.",
+        hasAbstractPricingModel
+          ? "Lead pricing with concrete outcomes/usage first; keep abstract unit systems as secondary detail."
+          : "Pricing model language appears concrete and easy to understand.",
     },
-    "cta-accessibility": {
-      key: "cta-accessibility",
-      score:
-        ctaButtonsCount === 0
-          ? 30
-          : ctaButtonLikeCount >= 2 && ctaSmallTextCount === 0
-            ? 82
-            : ctaButtonLikeCount >= 1
-              ? 62
-              : 40,
-      details: `CTA elements: ${ctaButtonsCount}. Button-like CTAs: ${ctaButtonLikeCount}. Small-text CTAs: ${ctaSmallTextCount}.`,
+    "pricing-plan-positioning": {
+      key: "pricing-plan-positioning",
+      score: audiencePlanNameCount >= 2 ? 84 : genericPlanNameCount >= 3 ? 52 : 68,
+      details: `Generic plan-name signals: ${genericPlanNameCount}. Audience/outcome plan-name signals: ${audiencePlanNameCount}.`,
       recommendation:
-        "Ensure primary CTAs are clearly styled as buttons, use readable text sizes, and stay tap-friendly on mobile.",
+        audiencePlanNameCount >= 2
+          ? "Plan positioning appears audience-aware. Keep plan names tied to buyer context."
+          : "Rename plan labels/headings around audience or outcomes (e.g., solo creator, team, agency) instead of generic tiers.",
     },
-    "pricing-transparency": {
-      key: "pricing-transparency",
-      score: hasPrice ? 84 : 22,
-      details: `Visible price anchor detected on page text: ${yesNo(hasPrice)}. Matched anchors: ${formatList(
-        priceAnchorSamples,
-        "none",
-      )}.`,
+    "pricing-comparison-clarity": {
+      key: "pricing-comparison-clarity",
+      score: hasThreePlusPlanSignals && hasPricingTable ? 84 : hasThreePlusPlanSignals ? 48 : 74,
+      details: `3+ plan signals detected: ${yesNo(hasThreePlusPlanSignals)}. Comparison table/matrix detected: ${yesNo(hasPricingTable)}.`,
       recommendation:
-        hasPrice
-          ? "Keep price anchors visible near CTA blocks to reduce purchase hesitation."
-          : "Critical: add visible pricing or a clear starting price near hero and CTA sections to reduce uncertainty.",
+        hasThreePlusPlanSignals && !hasPricingTable
+          ? "For 3+ plans, add clearer side-by-side comparison signals so users can self-qualify quickly."
+          : "Pricing comparison clarity looks acceptable for the detected plan structure.",
     },
     "click-distance": {
       key: "click-distance",
@@ -719,27 +964,64 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
     "social-proof": {
       key: "social-proof",
       score: trustSignalsCount >= 3 ? 86 : trustSignalsCount === 2 ? 60 : trustSignalsCount === 1 ? 36 : 18,
-      details: `Trust signal clusters detected: ${trustSignalsCount}. Testimonials: ${yesNo(
-        hasTestimonialSignal,
-      )}. Guarantees/returns: ${yesNo(hasGuaranteeSignal)}. Secure-payment cues: ${yesNo(
-        hasSecurePaymentSignal,
+      details: `Trust signal clusters detected: ${trustSignalsCount}. Testimonial/review cues: ${formatList(
+        testimonialCueMatches,
+        "none",
+        6,
+      )}. Hero customer-count cues: ${formatList(heroCustomerCountMatches, "none", 3)}.`,
+      recommendation:
+        "Critical: keep visible testimonial/review credibility cues and customer-count proof in key decision sections.",
+    },
+    "early-social-proof-badges": {
+      key: "early-social-proof-badges",
+      score: hasEarlyTrustBadges ? 84 : 48,
+      details: `Early trust badge/award cues near hero detected: ${yesNo(hasEarlyTrustBadges)}. Matched cues: ${formatList(
+        earlyTrustBadgeMatches,
+        "none",
+        5,
       )}.`,
       recommendation:
-        "Critical: add visible testimonials/ratings, guarantee/returns, and payment trust indicators near conversion CTAs.",
+        hasEarlyTrustBadges
+          ? "Early social proof badges are present. Keep them close to primary conversion actions."
+          : "Add recognizable third-party proof badges (awards/review platforms) near hero CTAs.",
     },
-    "trust-cta-proximity": {
-      key: "trust-cta-proximity",
-      score: ctaInTrustSectionCount >= 2 ? 82 : ctaInTrustSectionCount === 1 ? 60 : 34,
-      details: `CTA blocks with nearby trust language detected: ${ctaInTrustSectionCount}.`,
+    "testimonial-outcome-quality": {
+      key: "testimonial-outcome-quality",
+      score: testimonialOutcomeSignalCount >= 2 ? 84 : testimonialOutcomeSignalCount === 1 ? 62 : 38,
+      details: `Quantified outcome cues inside testimonial/case-study sections: ${testimonialOutcomeSignalCount}.`,
       recommendation:
-        "Place trust proof (reviews, guarantees, security cues) directly adjacent to primary conversion CTAs.",
+        testimonialOutcomeSignalCount >= 2
+          ? "Testimonial outcomes are specific. Keep names, roles, and measurable results visible."
+          : "Upgrade testimonials with specific outcomes, named people, and role/company context.",
+    },
+    "testimonial-third-party-verification": {
+      key: "testimonial-third-party-verification",
+      score: hasThirdPartyReviewBadge || testimonialExternalReviewLinks > 0 ? 82 : 44,
+      details: `Third-party review badge cues: ${yesNo(hasThirdPartyReviewBadge)}. External review/profile links: ${testimonialExternalReviewLinks}.`,
+      recommendation:
+        hasThirdPartyReviewBadge || testimonialExternalReviewLinks > 0
+          ? "External verification signals are present. Keep at least one independent review source visible."
+          : "Add independent verification near testimonials (review-platform badges, ratings, or external profile links).",
     },
     "nav-architecture": {
       key: "nav-architecture",
       score: navLinks >= 3 && hasShopNav ? 80 : navLinks >= 2 ? 58 : 38,
-      details: `Header links detected: ${navLinks}. Conversion-path nav item present: ${yesNo(hasShopNav)}.`,
+      details: `Header links detected: ${navLinks}. Header link samples: ${formatList(navLinkSamples, "none", 6)}. Conversion-path nav item present: ${yesNo(
+        hasShopNav,
+      )}.`,
       recommendation:
         "Keep conversion paths obvious in navigation and include an always-visible action path to purchase/signup.",
+    },
+    "language-consistency": {
+      key: "language-consistency",
+      score: mixedLanguageLikely || langMismatchLikely ? 24 : 84,
+      details: `Latin chars: ${latinChars}. Cyrillic chars: ${cyrillicChars}. HTML lang: "${displayValue(htmlLang)}". Mixed-language risk: ${yesNo(
+        mixedLanguageLikely || langMismatchLikely,
+      )}.`,
+      recommendation:
+        mixedLanguageLikely || langMismatchLikely
+          ? "Fix localization consistency (single language per page or explicit locale routing) to avoid trust and comprehension loss."
+          : "Language consistency looks clean for the detected page content.",
     },
     "funnel-friction": {
       key: "funnel-friction",
@@ -748,22 +1030,6 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
       recommendation:
         "Critical: minimize form and checkout friction by removing non-essential fields and reducing steps.",
     },
-    "form-friction-detail": {
-      key: "form-friction-detail",
-      score:
-        formFieldCount === 0
-          ? 72
-          : requiredFieldCount <= 4 && hasInlineErrorSignals
-            ? 84
-            : requiredFieldCount <= 7
-              ? 64
-              : 42,
-      details: `Form fields: ${formFieldCount}. Required fields: ${requiredFieldCount}. Optional fields: ${optionalFieldCount}. Inline error support detected: ${yesNo(
-        hasInlineErrorSignals,
-      )}.`,
-      recommendation:
-        "Limit required fields, keep optional questions out of critical flow, and provide clear inline validation feedback.",
-    },
     "offer-communication": {
       key: "offer-communication",
       score: /features|benefits|compare|faq|how it works/i.test(bodyText) ? 80 : 56,
@@ -771,60 +1037,142 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
       recommendation:
         "Pair feature claims with clear user outcomes and answer common objections near decision points.",
     },
-    "checkout-confidence": {
-      key: "checkout-confidence",
-      score: hasGuaranteeSignal && hasSecurePaymentSignal ? 84 : hasGuaranteeSignal || hasSecurePaymentSignal ? 62 : 34,
-      details: `Guarantee/return cues: ${yesNo(hasGuaranteeSignal)}. Secure payment cues: ${yesNo(hasSecurePaymentSignal)}.`,
-      recommendation:
-        "Add shipping, returns, warranty, and payment-safety assurances near purchase actions to improve completion rates.",
-    },
-    "intent-mismatch": {
-      key: "intent-mismatch",
-      score: intentMismatchDetected ? 42 : 82,
-      details: `Intent overlap - title/H1 tokens: ${titleH1Overlap}, title/primary CTA tokens: ${titleCtaOverlap}. Mismatch detected: ${yesNo(
-        intentMismatchDetected,
+    "integration-ecosystem-proof": {
+      key: "integration-ecosystem-proof",
+      score: hasIntegrationProof ? 84 : 46,
+      details: `Integration ecosystem signals detected: ${yesNo(hasIntegrationProof)}. Recognized integration mentions: ${formatList(
+        integrationMentions,
+        "none",
+        6,
       )}.`,
       recommendation:
-        "Align title, hero headline, and primary CTA so users and traffic sources see one consistent intent path.",
+        hasIntegrationProof
+          ? "Integration proof is visible. Keep recognizable partner logos close to integration CTAs."
+          : "Show ecosystem compatibility earlier with recognizable integration names/logos and a clear integrations CTA.",
+    },
+    "feature-cta-clarity": {
+      key: "feature-cta-clarity",
+      score: hasWeakReadMorePattern ? 42 : 80,
+      details: `Generic 'Read more' CTA count detected: ${readMoreCtaCount}.`,
+      recommendation:
+        hasWeakReadMorePattern
+          ? "Replace repetitive 'Read more' CTAs with intent-specific actions (e.g., 'See how it works', 'Explore features')."
+          : "Feature CTA language looks action-oriented and specific.",
     },
     "technical-health": {
       key: "technical-health",
       score: hasSchema && hasOgTitle && hasTwitterCard ? 82 : hasOgTitle ? 58 : 32,
-      details: `Schema present: ${yesNo(hasSchema)}. OG tags present: ${yesNo(hasOgTitle)}. Twitter card present: ${yesNo(
-        hasTwitterCard,
-      )}.`,
+      details: `Schema present: ${yesNo(hasSchema)} (types: ${formatList(schemaTypeSamples, "none", 6)}). OG tags present: ${yesNo(
+        hasOgTitle,
+      )} (og:title="${displayValue(ogTitleValue)}"). Twitter card present: ${yesNo(hasTwitterCard)} (twitter:card="${displayValue(
+        twitterCardValue,
+      )}").`,
       recommendation:
         "Implement full metadata coverage (OG, Twitter) and structured data to support discoverability and trust.",
     },
     "mobile-experience": {
       key: "mobile-experience",
-      score: hasViewportMeta ? 80 : 35,
-      details: `Viewport meta present: ${yesNo(hasViewportMeta)}.`,
+      score: hasViewportMeta && ctaButtonsCount >= 2 && buttonLikeCtaCount >= 1 ? 82 : hasViewportMeta ? 64 : 35,
+      details: `Viewport meta present: ${yesNo(hasViewportMeta)} (content: "${displayValue(
+        viewportContent,
+      )}"). CTA-like elements: ${ctaButtonsCount}. Button-like CTAs: ${buttonLikeCtaCount}.`,
       recommendation:
         "Maintain mobile-first readability, tap target sizing, and friction-free interaction patterns.",
     },
     "support-objections": {
       key: "support-objections",
-      score: hasSupport ? 86 : 46,
-      details: `Support or FAQ signals detected: ${yesNo(hasSupport)}.`,
+      score: hasSupport && hasFaqSignals ? 88 : hasSupport ? 68 : 46,
+      details: `Support signals detected: ${yesNo(hasSupport)}. Support cues: ${formatList(
+        supportCueMatches,
+        "none",
+        5,
+      )}. FAQ-style objection section detected: ${yesNo(hasFaqSignals)}. FAQ heading samples: ${formatList(
+        faqHeadingSamples,
+        "none",
+        4,
+      )}.`,
       recommendation:
         "Expose support channels and objection-handling answers earlier to reduce purchase hesitation.",
     },
+    "faq-depth": {
+      key: "faq-depth",
+      score: faqQuestionCount >= 7 ? 86 : faqQuestionCount >= 4 ? 62 : 38,
+      details: `FAQ-style question count detected: ${faqQuestionCount}.`,
+      recommendation:
+        faqQuestionCount >= 7
+          ? "FAQ depth is strong. Keep adding high-anxiety objections (billing, fit, security, cancellation)."
+          : "Expand FAQ depth with high-anxiety questions (cancellation, usage limits, fit, security, differentiation).",
+    },
     "urgency-incentives": {
       key: "urgency-incentives",
-      score: hasUrgency ? 78 : 48,
-      details: `Urgency/incentive messaging detected: ${yesNo(hasUrgency)}.`,
+      score: hasUrgency && hasRiskReversal ? 84 : hasUrgency || hasRiskReversal ? 66 : 44,
+      details: `Urgency messaging detected: ${yesNo(hasUrgency)}. Risk-reversal cues detected: ${yesNo(hasRiskReversal)}.`,
       recommendation:
-        "Use honest urgency and incentive cues (shipping windows, limited offers, risk reversal) near CTAs.",
+        "Use honest urgency and risk-reversal cues (no credit card, cancel anytime, guarantees) near CTAs.",
     },
     "analytics-tracking": {
       key: "analytics-tracking",
       score: hasAnalytics ? 84 : 18,
-      details: `Tracking scripts/signals detected (GA/GTM/pixel/recording): ${yesNo(hasAnalytics)}.`,
+      details: `Tracking scripts/signals detected (GA/GTM/pixel/recording): ${yesNo(hasAnalytics)}. Matched signals: ${formatList(
+        analyticsSignalMatches,
+        "none",
+        6,
+      )}.`,
       recommendation:
         hasAnalytics
           ? "Keep conversion events instrumented (view, CTA click, checkout start, purchase) and monitor regularly."
           : "Install analytics and conversion event tracking before scaling CRO tests.",
+    },
+    "final-cta-reinforcement": {
+      key: "final-cta-reinforcement",
+      score: hasBottomCta ? 84 : 46,
+      details: `Bottom-of-page CTA block detected in final sections: ${yesNo(hasBottomCta)}.`,
+      recommendation:
+        hasBottomCta
+          ? "Final CTA reinforcement is present. Keep one-line value recap and friction reducer near the CTA."
+          : "Add a strong end-of-page CTA block that repeats core actions after users finish scanning.",
+    },
+    "footer-cta-clarity": {
+      key: "footer-cta-clarity",
+      score: footerHasContextLine ? 82 : footerCtaTexts.length > 0 ? 56 : 68,
+      details: `Footer CTA count: ${footerCtaTexts.length}. Footer context/risk-reversal microcopy detected: ${yesNo(
+        footerHasContextLine,
+      )}. Sign-in CTA present in footer: ${yesNo(footerHasSignIn)}.`,
+      recommendation:
+        footerHasContextLine
+          ? "Footer CTA context is clear. Keep friction-reducing microcopy close to signup action."
+          : "Add a short footer CTA context line (e.g., no credit card, setup time, cancel anytime) to reduce hesitation.",
+    },
+    "security-compliance-badge": {
+      key: "security-compliance-badge",
+      score: hasSecurityComplianceBadge ? 84 : 52,
+      details: `Footer security/compliance badge cues detected: ${yesNo(hasSecurityComplianceBadge)}.`,
+      recommendation:
+        hasSecurityComplianceBadge
+          ? "Security/compliance trust cues are present. Keep them visible in late-stage decision zones."
+          : "Add visible security/compliance trust badges (SOC/ISO equivalent) near final conversion areas.",
+    },
+    "founder-credibility-story": {
+      key: "founder-credibility-story",
+      score: storyLength >= 260 && storyCredibilitySignals >= 3 ? 82 : storyLength >= 120 ? 60 : 40,
+      details: `Founder/story section text length: ${storyLength}. Credibility cues detected: ${storyCredibilitySignals}.`,
+      recommendation:
+        storyLength >= 120
+          ? "Founder/story section exists. Strengthen it with concrete background, timeline, and why-now credibility."
+          : "Expand founder/story section beyond generic copy and include concrete credibility details.",
+    },
+    "affiliate-program-leverage": {
+      key: "affiliate-program-leverage",
+      score: !hasAffiliateSignal ? 70 : affiliateInFooterOnly ? 48 : 80,
+      details: `Affiliate signal detected: ${yesNo(hasAffiliateSignal)}. Affiliate mentions appear mostly footer-only: ${yesNo(
+        affiliateInFooterOnly,
+      )}.`,
+      recommendation:
+        !hasAffiliateSignal
+          ? "No affiliate signal detected. This is optional unless partner/community growth is a core channel."
+          : affiliateInFooterOnly
+            ? "Surface affiliate/community proof earlier than footer to improve trust and advocacy signals."
+            : "Affiliate/community signals are surfaced beyond the footer.",
     },
   };
 
@@ -838,14 +1186,12 @@ function buildCroChecks($: ReturnType<typeof load>, bodyText: string, title: str
   const criticalPenaltyCount = [
     popupCount > 0,
     !ctaInHero,
-    !hasPrice,
     trustSignalsCount <= 1,
     !hasAnalytics,
-    intentMismatchDetected,
+    mixedLanguageLikely || langMismatchLikely,
   ].filter(Boolean).length;
-  const highPenaltyCount = [formFieldCount > 8, !hasSupport, !hasShopNav, ctaInTrustSectionCount === 0].filter(
-    Boolean,
-  ).length;
+  const highPenaltyCount = [formFieldCount > 8, !hasSupport, !hasShopNav, hasAbstractPricingModel, faqQuestionCount < 4].filter(Boolean)
+    .length;
   const score = clamp(baseScore - criticalPenaltyCount * 7 - highPenaltyCount * 3, 15, 95);
 
   const checksPayload = CRO_AUDIT_CHECKLIST.map((item) => {

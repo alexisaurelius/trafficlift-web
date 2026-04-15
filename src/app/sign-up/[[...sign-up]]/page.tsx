@@ -10,7 +10,13 @@ export default async function SignUpPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--surface)] p-8">
-      <SignUp forceRedirectUrl="/dashboard" fallbackRedirectUrl="/dashboard" />
+      <SignUp
+        routing="path"
+        path="/sign-up"
+        signInUrl="/sign-in"
+        forceRedirectUrl="/dashboard"
+        fallbackRedirectUrl="/dashboard"
+      />
     </main>
   );
 }

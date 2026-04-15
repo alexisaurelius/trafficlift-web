@@ -92,6 +92,7 @@ model Audit {
   user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   targetUrl      String
   targetKeyword  String
+  shareToken     String?     @unique
   score          Int?
   status         AuditStatus @default(QUEUED)
   summary        String?

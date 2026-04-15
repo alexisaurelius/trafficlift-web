@@ -8,7 +8,9 @@ import { CroProcessTimelineSection } from "@/components/cro-process-timeline-sec
 import { Bot, CircleAlert, FilePenLine, GaugeCircle, SearchX } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "TrafficLift - AI CRO Audits On Demand",
+  title: "CRO Audits On Demand - TrafficLift",
+  description:
+    "Order AI-assisted SEO audits on demand. Track issues, prioritize fixes, and improve conversions with actionable reports.",
   alternates: {
     canonical: "https://www.trafficlift.ai/cro-audit/",
   },
@@ -70,7 +72,7 @@ export default async function CroAuditPage() {
             <p className="mx-auto inline-flex items-center gap-2 rounded-full bg-[#bde9cb] px-4 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#186c39]">
               <span className="inline-block h-2 w-2 rounded-full bg-[#1bb65f]" /> AI-Powered Insights + Human Expertise
             </p>
-            <h1 className="sr-only">TrafficLift - AI CRO Audits On Demand</h1>
+            <h1 className="sr-only">CRO Audits On Demand</h1>
             <h2 className="font-manrope relative mx-auto mt-8 max-w-3xl text-4xl font-extrabold leading-[1.06] tracking-tight text-[var(--primary)] md:text-6xl">
               Find the Issues That
               <br />
@@ -142,7 +144,7 @@ export default async function CroAuditPage() {
                 Recommended
               </span>
               <h3 className="font-manrope text-[26px] font-extrabold leading-tight">TrafficLift CRO</h3>
-              <p className="mt-1 text-base font-bold uppercase tracking-wide text-[#22c55e]">Starting at $4.99</p>
+              <p className="mt-1 text-base font-bold uppercase tracking-wide text-[#22c55e]">Starting at $2.99</p>
               <ul className="mt-6 space-y-3 text-[16px] leading-snug">
                 {[
                   "Audit delivered in under 10 minutes",
@@ -257,10 +259,10 @@ export default async function CroAuditPage() {
           <p className="mt-2 text-center text-sm text-[var(--on-surface)]/70">No hidden fees. Professional CRO accessible to everyone.</p>
           <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             {[
-              { name: "One-Time Audit", price: "$4.99", suffix: "/one-time", cta: "Select Basic", dark: false, perks: ["One full CRO audit of your submitted page", "All audit elements included", "Audits are stored permanently"] },
-              { name: "Starter Plan", price: "$12.99", suffix: "/mo", cta: "Select Starter", badge: "Popular", dark: true, perks: ["3 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
-              { name: "Standard Plan", price: "$29.99", suffix: "/mo", cta: "Select Standard", dark: false, perks: ["10 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
-              { name: "Pro Plan", price: "$49.99", suffix: "/mo", cta: "Select Pro", dark: false, perks: ["20 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
+              { name: "One-time", price: "$2.99", suffix: "/one-time", cta: "Select Basic", dark: false, perks: ["One full CRO audit of your submitted page", "All audit elements included", "Audits are stored permanently"] },
+              { name: "Starter plan", price: "$7.99", suffix: "/mo", cta: "Select Starter", dark: false, perks: ["3 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
+              { name: "Standard Plan", price: "$17.99", suffix: "/mo", cta: "Select Standard", badge: "Popular", dark: true, perks: ["10 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
+              { name: "Pro Plan", price: "$34.99", suffix: "/mo", cta: "Select Pro", dark: false, perks: ["20 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
             ].map((plan) => (
               <article
                 key={plan.name}

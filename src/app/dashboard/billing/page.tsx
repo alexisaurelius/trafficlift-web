@@ -5,23 +5,23 @@ const plans = [
   {
     id: "ONE_TIME" as const,
     name: "One-time Audit",
-    price: "$8.99",
+    price: "$4.99",
     subtitle: "Single report",
     credits: "1 credit",
   },
   {
     id: "STANDARD" as const,
     name: "Standard",
-    price: "$24/mo",
+    price: "$29.99/mo",
     subtitle: "Monthly plan",
     credits: "10 credits monthly",
   },
   {
     id: "PRO" as const,
     name: "Pro",
-    price: "$49/mo",
+    price: "$49.99/mo",
     subtitle: "Monthly plan",
-    credits: "30 credits monthly",
+    credits: "20 credits monthly",
   },
 ];
 

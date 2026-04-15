@@ -15,11 +15,11 @@ export default function DashboardLayout({
 
       <header className="z-20 bg-[color:color-mix(in_oklab,var(--surface)_90%,transparent)] backdrop-blur-xl">
         <div className="mx-auto w-full max-w-7xl px-6 py-4">
-          <div className="flex items-center justify-between rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[color:color-mix(in_oklab,var(--surface-container-lowest)_88%,transparent)] px-5 py-3 shadow-[0_14px_34px_rgba(0,22,57,0.08)]">
-            <div className="flex items-center gap-5">
-              <Link href="/" className="font-manrope text-[26px] font-extrabold tracking-tight text-[var(--primary)]">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[color:color-mix(in_oklab,var(--surface-container-lowest)_88%,transparent)] px-5 py-3 shadow-[0_14px_34px_rgba(0,22,57,0.08)]">
+            <div className="justify-self-start">
+              <Link href="/dashboard" className="font-manrope text-[26px] font-extrabold tracking-tight text-[var(--primary)]">
                 <span>Traffic</span>
-                <span className="relative inline-block -rotate-6 origin-bottom-left">
+                <span className="relative inline-block -rotate-6 origin-bottom-left text-[#22c55e]">
                   Lift
                   <svg
                     viewBox="0 0 48 12"
@@ -55,9 +55,11 @@ export default function DashboardLayout({
                   </svg>
                 </span>
               </Link>
+            </div>
+            <div className="justify-self-center">
               <DashboardNav />
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center justify-self-end gap-1.5">
               <UserButton />
               <ChevronDown size={14} className="text-[var(--on-surface)]/55" />
             </div>

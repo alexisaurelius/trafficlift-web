@@ -18,6 +18,14 @@ export const metadata: Metadata = {
   title: "TrafficLift - AI SEO Audits On Demand",
   description:
     "Order AI-assisted SEO audits on demand. Track issues, prioritize fixes, and improve rankings with actionable reports.",
+  icons: {
+    icon: [
+      { url: "/icon.svg?v=1", type: "image/svg+xml" },
+      { url: "/favicon.ico?v=1", sizes: "any" },
+    ],
+    shortcut: "/favicon.ico?v=1",
+    apple: "/icon.svg?v=1",
+  },
 };
 
 export default function RootLayout({
@@ -29,6 +37,8 @@ export default function RootLayout({
     <html lang="en" className={`${manrope.variable} ${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <ClerkProvider
+          signInUrl="/sign-in"
+          signUpUrl="/sign-up"
           signInFallbackRedirectUrl="/dashboard"
           signUpFallbackRedirectUrl="/dashboard"
           signInForceRedirectUrl="/dashboard"
