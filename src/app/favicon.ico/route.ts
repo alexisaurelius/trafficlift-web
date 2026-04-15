@@ -157,7 +157,11 @@ function createFaviconIco(): Uint8Array {
 }
 
 export function GET() {
-  return new NextResponse(createFaviconIco(), {
+  const iconBytes = createFaviconIco();
+  const stableBytes = Uint8Array.from(iconBytes);
+  const body = new Blob([stableBytes], { type: "image/x-icon" });
+
+  return new NextResponse(body, {
     headers: {
       "Content-Type": "image/x-icon",
       "Cache-Control": "public, max-age=31536000, immutable",
