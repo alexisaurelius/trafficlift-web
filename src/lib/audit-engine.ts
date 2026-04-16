@@ -311,11 +311,16 @@ function enforceRecommendationTone(
   recommendation: string,
   status: "pass" | "fail" | "warn",
 ) {
-  const normalized = recommendation.trim();
+  const normalized = recommendation
+    .trim()
+    .replace(/^(critical|high|medium|low)\s*:\s*/i, "");
   if (!normalized) return recommendation;
 
   if (status === "fail") {
     if (/^(add|replace|remove|reduce|move|rewrite|test)\b/i.test(normalized)) return normalized;
+    if (/^keep\b/i.test(normalized)) {
+      return normalized.replace(/^keep\b/i, "Add");
+    }
     return `Add ${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}`;
   }
 
@@ -606,8 +611,17 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
       return text.length >= 40 && hasPopupLanguage;
     });
   const popupCount = popupCandidates.length;
-  const hasCookieBanner = /(cookie consent|cookie settings|accept cookies|cookie policy)/i.test(bodyText);
-  const cookieCueMatches = collectMatches(bodyText, /cookie consent|cookie settings|accept cookies|cookie policy/gi, 5);
+  const cookieCueMatches = collectMatches(
+    bodyText,
+    /cookie consent|cookie settings|accept cookies|accept all cookies|reject all|cookie policy|we care about your privacy/i,
+    8,
+  );
+  const hasCookieBanner =
+    cookieCueMatches.length > 0 ||
+    $("[id*='onetrust' i], [id*='truste' i], [id*='cookiebot' i], [class*='onetrust' i], [class*='cookiebot' i]").length > 0 ||
+    $("[role='dialog']")
+      .toArray()
+      .some((el) => /cookie|privacy|we care about your privacy/i.test($(el).text()));
   const cookieUiBlocks = $('[class*="cookie" i], [id*="cookie" i], [data-cookie], [aria-label*="cookie" i]')
     .toArray()
     .filter((el) => {
@@ -616,7 +630,8 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     }).length;
   const h1Node = $("h1").first();
   const h1Text = h1Node.text().trim();
-  const actionCtaRegex = /(get started|get a demo|buy|order|start|sign up|subscribe|shop|audit|checkout|pricing|book|trial|start for free|talk to sales)/i;
+  const actionCtaRegex =
+    /(get started|get a demo|buy|order|start|sign up|subscribe|shop|audit|checkout|pricing|plans?|book|trial|start for free|talk to sales|get insights|view plans?)/i;
   const getInteractiveText = (el: AnyNode) => {
     const directText = $(el).text().replace(/\s+/g, " ").trim();
     const value = ($(el).attr("value") ?? "").replace(/\s+/g, " ").trim();
@@ -645,7 +660,7 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     const href = ($(el).attr("href") ?? $(el).attr("formaction") ?? "").toLowerCase();
     return /(checkout|pricing|shop|buy|order|billing|cart|signup|sign-up|register|trial)/i.test(href);
   }).length;
-  const h1PrimaryContainer = h1Node.closest("section,header,main,article");
+  const h1PrimaryContainer = h1Node.closest("section,article,div,header");
   const h1FallbackContainer = h1Node.closest("div");
   const collectScopeCtas = (scope: Cheerio<AnyNode>) =>
     scope
@@ -653,9 +668,15 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
       .toArray()
       .map((el) => getInteractiveText(el))
       .filter((text) => actionCtaRegex.test(text));
+  const firstHeroLikeSection = $("section,article,div")
+    .toArray()
+    .find((el) => /h1|hero|show up|be found/i.test($(el).text()));
   let heroCtas = collectScopeCtas(h1PrimaryContainer);
   if (heroCtas.length === 0) {
     heroCtas = collectScopeCtas(h1FallbackContainer);
+  }
+  if (heroCtas.length === 0 && firstHeroLikeSection) {
+    heroCtas = collectScopeCtas($(firstHeroLikeSection));
   }
   const uniqueHeroCtas = [...new Set(heroCtas.map((text) => text.toLowerCase()))];
   const hasDualHeroCta = uniqueHeroCtas.length >= 2;
@@ -690,16 +711,75 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     8,
   );
   const hasTestimonialSignal = testimonialCueMatches.length > 0;
-  const supportCueMatches = collectMatches(bodyText, /live chat|chatbot|support@|contact us|help center|faq/gi, 8);
+  const customerCountMatches = collectMatches(
+    bodyText,
+    /\b\d{1,3}(?:,\d{3})+\+?\s+(brands|customers|companies|agencies|users|businesses|marketers)\b/gi,
+    8,
+  );
+  const namedTestimonialBlockCount = $("section,article,div,blockquote")
+    .toArray()
+    .filter((el) => {
+      const node = $(el);
+      const text = node.text().replace(/\s+/g, " ").trim();
+      const hasPersonSignal = /\b[A-Z][a-z]+ [A-Z][a-z]+\b/.test(text);
+      const hasRoleSignal = /\b(vp|director|manager|founder|ceo|head|specialist|marketing)\b/i.test(text);
+      const hasCompanySignal = /\bat\b|\bof\b/i.test(text);
+      const hasMediaSignal = node.find("img").length > 0 || node.find("blockquote").length > 0;
+      return hasPersonSignal && hasRoleSignal && hasCompanySignal && hasMediaSignal;
+    }).length;
+  const hasNamedTestimonialBlocks = namedTestimonialBlockCount >= 1;
+  const logoBarCount = $("section,article,div")
+    .toArray()
+    .filter((el) => {
+      const images = $(el).find("img[alt]").toArray();
+      if (images.length < 4) return false;
+      const altWithBrandLikeText = images.filter((img) => {
+        const alt = ($(img).attr("alt") ?? "").trim();
+        return alt.length >= 2 && !/logo|icon/i.test(alt);
+      });
+      return altWithBrandLikeText.length >= 3;
+    }).length;
+  const hasLogoBar = logoBarCount > 0;
+  const statBlockMatches = $("h2,h3,strong")
+    .toArray()
+    .map((el) => {
+      const metric = $(el).text().replace(/\s+/g, " ").trim();
+      if (!/\d/.test(metric)) return "";
+      const descriptor = ($(el).next().text() || "").replace(/\s+/g, " ").trim();
+      const descriptorWords = descriptor.split(/\s+/).filter(Boolean).length;
+      if (!descriptor || descriptorWords > 6) return "";
+      return `${metric} ${descriptor}`;
+    })
+    .filter(Boolean)
+    .slice(0, 10);
+  const hasStatBlocks = statBlockMatches.length >= 2;
+  const trustClusterCount = [customerCountMatches.length > 0, hasNamedTestimonialBlocks, hasLogoBar, hasStatBlocks].filter(Boolean).length;
+  const supportCueMatches = collectMatches(
+    bodyText,
+    /contact|help|support|chat|customer service|get in touch|help hub|help center|faq|knowledge base/gi,
+    12,
+  );
   const hasSupportProofSignal = supportCueMatches.length > 0;
-  const trustSignalsCount = [hasTestimonialSignal, heroCustomerCountSignal, hasSupportProofSignal].filter(Boolean).length;
-  const headerLinks = $("header a").toArray();
-  const navLinks = headerLinks.length;
-  const navLinkSamples = headerLinks
-    .map((el) => getInteractiveText(el))
+  const trustSignalsCount = trustClusterCount;
+  const navInteractiveElements = $(
+    "nav a, nav button, nav [role='button'], [role='navigation'] a, [role='navigation'] button, [role='menubar'] a, [role='menubar'] button, header a, header button, .navbar-nav a, .navbar-nav button, ul.menu a, ul.menu button",
+  ).toArray();
+  const navTexts = [...new Set(navInteractiveElements.map((el) => getInteractiveText(el)).filter(Boolean))];
+  const navLinks = navTexts.length;
+  const navLinkSamples = navTexts
+    .map((text) => text.replace(/\s+/g, " ").trim())
     .filter(Boolean)
     .slice(0, 8);
-  const hasShopNav = headerLinks.some((el) => /(buy|shop|pricing|get started|sign up|checkout)/i.test($(el).text()));
+  const topRegionNodes = $("body")
+    .children()
+    .toArray()
+    .slice(0, Math.max(2, Math.ceil($("body").children().length * 0.15)));
+  const topRegionTexts = topRegionNodes
+    .flatMap((node) => $(node).find("a,button,[role='button']").toArray())
+    .map((el) => `${getInteractiveText(el)} ${($(el).attr("href") ?? "").trim()}`);
+  const hasShopNav = [...navTexts, ...topRegionTexts].some((text) =>
+    /(pricing|plans|trial|demo|sign up|get started|buy|checkout)/i.test(text),
+  );
   const nativeFormFields = $("form input, form select, form textarea").toArray();
   const interactionFields = $("[role='combobox'], [role='listbox'], [contenteditable='true']").toArray();
   const formFieldCount = new Set([...nativeFormFields, ...interactionFields]).size;
@@ -719,7 +799,21 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
   const hasOgTitle = Boolean(ogTitleValue);
   const twitterCardValue = $('meta[name="twitter:card"]').attr("content")?.trim() ?? "";
   const hasTwitterCard = Boolean(twitterCardValue);
-  const hasSupport = /(live chat|chatbot|support@|contact us|help center|faq)/i.test(bodyText);
+  const lastQuarterSections = sectionNodes.slice(Math.max(Math.floor(sectionNodes.length * 0.75), 0));
+  const supportLinkMatches = [...new Set(
+    [
+      ...$("header a, footer a")
+        .toArray()
+        .map((el) => `${$(el).text().replace(/\s+/g, " ").trim()} ${($(el).attr("href") ?? "").trim()}`),
+      ...lastQuarterSections.flatMap((section) =>
+        $(section)
+          .find("a")
+          .toArray()
+          .map((el) => `${$(el).text().replace(/\s+/g, " ").trim()} ${($(el).attr("href") ?? "").trim()}`),
+      ),
+    ].filter((entry) => /contact|help|support|chat|customer service|get in touch|help hub|help center|faq|knowledge base/i.test(entry)),
+  )].slice(0, 10);
+  const hasSupport = supportCueMatches.length > 0 || supportLinkMatches.length > 0;
   const hasFaqHeading = $("h2,h3,h4")
     .toArray()
     .some((el) => /(faq|frequently asked|questions)/i.test($(el).text()));
@@ -999,13 +1093,23 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     },
     "quantified-outcomes": {
       key: "quantified-outcomes",
-      score: quantifiedOutcomeCount >= 6 ? 86 : quantifiedOutcomeCount >= 3 ? 72 : 42,
-      status: quantifiedOutcomeCount >= 6 ? "pass" : quantifiedOutcomeCount >= 3 ? "warn" : "fail",
+      score:
+        quantifiedOutcomeCount >= 3 && customerCountMatches.length > 0
+          ? 86
+          : quantifiedOutcomeCount >= 3
+            ? 72
+            : 42,
+      status:
+        quantifiedOutcomeCount >= 3 && customerCountMatches.length > 0
+          ? "pass"
+          : quantifiedOutcomeCount >= 3
+            ? "warn"
+            : "fail",
       details: `Quantified outcome cues detected: ${quantifiedOutcomeCount}. Matched cues: ${formatList(
         quantifiedOutcomeMatches,
         "none",
         12,
-      )}.`,
+      )}. Customer/volume cues: ${formatList(customerCountMatches, "none", 5)}.`,
       recommendation:
         quantifiedOutcomeCount >= 6
           ? "Keep quantified outcomes near CTAs and feature claims to reinforce credibility."
@@ -1088,13 +1192,19 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     "social-proof": {
       key: "social-proof",
       score: trustSignalsCount >= 2 ? 84 : trustSignalsCount === 1 ? 58 : 24,
-      details: `Trust signal clusters detected: ${trustSignalsCount}. Testimonial/review cues: ${formatList(
-        testimonialCueMatches,
+      details: `Trust signal clusters detected: ${trustSignalsCount}. Customer-count cues: ${formatList(
+        customerCountMatches,
         "none",
-        6,
-      )}. Hero customer-count cues: ${formatList(heroCustomerCountMatches, "none", 3)}.`,
+        4,
+      )}. Named testimonial blocks: ${namedTestimonialBlockCount}. Logo bars detected: ${logoBarCount}. Stat-block cues: ${formatList(
+        statBlockMatches,
+        "none",
+        5,
+      )}.`,
       recommendation:
-        "Critical: keep visible testimonial/review credibility cues and customer-count proof in key decision sections.",
+        trustSignalsCount >= 2
+          ? "Keep visible testimonial/review credibility cues and customer-count proof in key decision sections."
+          : "Add visible testimonial credibility cues and customer-count proof near primary CTAs.",
     },
     "testimonial-outcome-quality": {
       key: "testimonial-outcome-quality",
@@ -1116,8 +1226,12 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     },
     "nav-architecture": {
       key: "nav-architecture",
-      score: navLinks >= 3 && hasShopNav ? 80 : navLinks >= 2 ? 58 : 38,
-      details: `Header links detected: ${navLinks}. Header link samples: ${formatList(navLinkSamples, "none", 6)}. Conversion-path nav item present: ${yesNo(
+      score: navLinks >= 4 && hasShopNav ? 84 : navLinks >= 2 ? 70 : 48,
+      details: `Navigation interactive items detected: ${navLinks}. Nav samples: ${formatList(
+        navLinkSamples,
+        "none",
+        8,
+      )}. Conversion-path nav item present: ${yesNo(
         hasShopNav,
       )}.`,
       recommendation:
@@ -1173,6 +1287,10 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
       score: hasSupport && hasFaqSignals ? 88 : hasSupport ? 82 : 46,
       details: `Support signals detected: ${yesNo(hasSupport)}. Support cues: ${formatList(
         supportCueMatches,
+        "none",
+        5,
+      )}. Support link samples: ${formatList(
+        supportLinkMatches,
         "none",
         5,
       )}. FAQ-style objection section detected: ${yesNo(hasFaqSignals)}. FAQ heading samples: ${formatList(
