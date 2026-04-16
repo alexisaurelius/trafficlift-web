@@ -348,8 +348,9 @@ function parseMetaRobots($: ReturnType<typeof load>) {
 
 function parseTitleDescription(html: string) {
   const $ = load(html);
+  const titleFromHead = $("head > title").first().text().trim();
   return {
-    title: $("title").text().trim(),
+    title: titleFromHead || $("title").first().text().trim(),
     description: $('meta[name="description"]').attr("content")?.trim() ?? "",
     metaRobots: parseMetaRobots($),
   };
@@ -716,17 +717,30 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     /\b\d{1,3}(?:,\d{3})+\+?\s+(brands|customers|companies|agencies|users|businesses|marketers)\b/gi,
     8,
   );
-  const namedTestimonialBlockCount = $("section,article,div,blockquote")
+  const testimonialSignatureSet = new Set<string>();
+  $("section,article,div,blockquote")
     .toArray()
-    .filter((el) => {
+    .forEach((el) => {
       const node = $(el);
       const text = node.text().replace(/\s+/g, " ").trim();
       const hasPersonSignal = /\b[A-Z][a-z]+ [A-Z][a-z]+\b/.test(text);
       const hasRoleSignal = /\b(vp|director|manager|founder|ceo|head|specialist|marketing)\b/i.test(text);
       const hasCompanySignal = /\bat\b|\bof\b/i.test(text);
       const hasMediaSignal = node.find("img").length > 0 || node.find("blockquote").length > 0;
-      return hasPersonSignal && hasRoleSignal && hasCompanySignal && hasMediaSignal;
-    }).length;
+      if (!(hasPersonSignal && hasRoleSignal && hasCompanySignal && hasMediaSignal)) return;
+
+      const quoteText = node.find("blockquote,p").first().text().replace(/\s+/g, " ").trim() || text.slice(0, 180);
+      const attributionText = node
+        .find("h3,h4,strong,small,figcaption,a")
+        .toArray()
+        .map((n) => $(n).text().replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(" | ");
+      const signature = `${quoteText}||${attributionText}`.toLowerCase();
+      if (signature) testimonialSignatureSet.add(signature);
+    });
+  const namedTestimonialBlockCount = Math.min(testimonialSignatureSet.size, 12);
   const hasNamedTestimonialBlocks = namedTestimonialBlockCount >= 1;
   const logoBarCount = $("section,article,div")
     .toArray()
@@ -761,25 +775,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
   );
   const hasSupportProofSignal = supportCueMatches.length > 0;
   const trustSignalsCount = trustClusterCount;
-  const navInteractiveElements = $(
-    "nav a, nav button, nav [role='button'], [role='navigation'] a, [role='navigation'] button, [role='menubar'] a, [role='menubar'] button, header a, header button, .navbar-nav a, .navbar-nav button, ul.menu a, ul.menu button",
-  ).toArray();
-  const navTexts = [...new Set(navInteractiveElements.map((el) => getInteractiveText(el)).filter(Boolean))];
-  const navLinks = navTexts.length;
-  const navLinkSamples = navTexts
-    .map((text) => text.replace(/\s+/g, " ").trim())
-    .filter(Boolean)
-    .slice(0, 8);
-  const topRegionNodes = $("body")
-    .children()
-    .toArray()
-    .slice(0, Math.max(2, Math.ceil($("body").children().length * 0.15)));
-  const topRegionTexts = topRegionNodes
-    .flatMap((node) => $(node).find("a,button,[role='button']").toArray())
-    .map((el) => `${getInteractiveText(el)} ${($(el).attr("href") ?? "").trim()}`);
-  const hasShopNav = [...navTexts, ...topRegionTexts].some((text) =>
-    /(pricing|plans|trial|demo|sign up|get started|buy|checkout)/i.test(text),
-  );
   const nativeFormFields = $("form input, form select, form textarea").toArray();
   const interactionFields = $("[role='combobox'], [role='listbox'], [contenteditable='true']").toArray();
   const formFieldCount = new Set([...nativeFormFields, ...interactionFields]).size;
@@ -905,7 +900,7 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
   const threePlusPlanPaths = pricingPageScans.filter((scan) => scan.hasThreePlusPlans).map((scan) => scan.path);
   const pricingSections = $("section,article,div")
     .toArray()
-    .filter((el) => /(pricing|plan|billing|subscription)/i.test($(el).text()));
+    .filter((el) => /(pricing|plan|billing|subscription|free|starter|professional|enterprise)/i.test($(el).text()));
   const pricingSectionText = pricingSections
     .slice(0, 4)
     .map((el) => $(el).text())
@@ -923,6 +918,49 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
   const hasPricingTable = $("table")
     .toArray()
     .some((el) => /(plan|pricing|features?|compare|included)/i.test($(el).text()));
+  const planHeadingRegex = /\b(free|starter|pro|professional|enterprise|business|team|basic|plus)\b/i;
+  const priceTokenRegex = /\$\d|\bfree\b|\/mo(?:nth)?\b|per seat/i;
+  const hasPricingFeatureList = (card: ReturnType<typeof $>) =>
+    card.find("ul,ol,li").length > 0 ||
+    card
+      .find("p,div,span")
+      .toArray()
+      .map((el) => $(el).text().replace(/\s+/g, " ").trim())
+      .filter((text) => /^[-•]/.test(text) || text.split(/\s+/).length > 4).length >= 3;
+  const getCardSignature = (el: AnyNode) => {
+    const tag = ("tagName" in el ? (el as { tagName?: string }).tagName : "")?.toLowerCase() ?? "";
+    const classTokens = (($(el).attr("class") ?? "").toLowerCase().split(/\s+/).filter(Boolean)).slice(0, 6);
+    return [tag, ...classTokens].join(".");
+  };
+  const signatureSimilarity = (a: string, b: string) => {
+    const aSet = new Set(a.split(".").filter(Boolean));
+    const bSet = new Set(b.split(".").filter(Boolean));
+    const intersection = [...aSet].filter((token) => bSet.has(token)).length;
+    const union = new Set([...aSet, ...bSet]).size;
+    if (union === 0) return 0;
+    return intersection / union;
+  };
+  const hasStructuredPricingMatrix = pricingSections.some((section) => {
+    const sectionNode = $(section);
+    const candidateCards = sectionNode
+      .children("div,article,li,section")
+      .toArray()
+      .filter((cardEl) => {
+        const card = $(cardEl);
+        const cardText = card.text().replace(/\s+/g, " ").trim();
+        const headingText = card.find("h1,h2,h3,h4,strong").first().text().replace(/\s+/g, " ").trim();
+        const hasPlanHeading = planHeadingRegex.test(headingText) || (headingText.length > 0 && priceTokenRegex.test(cardText));
+        const hasPriceToken = priceTokenRegex.test(cardText);
+        return hasPlanHeading && hasPriceToken && hasPricingFeatureList(card);
+      });
+    if (candidateCards.length < 3) return false;
+    const signatures = candidateCards.map((cardEl) => getCardSignature(cardEl));
+    const baseSignature = signatures[0] ?? "";
+    const avgSimilarity =
+      signatures.slice(1).reduce((sum, signature) => sum + signatureSimilarity(baseSignature, signature), 0) /
+      Math.max(signatures.length - 1, 1);
+    return avgSimilarity > 0.7;
+  });
   const estimatedPlanCount = $("section,article,div")
     .toArray()
     .filter((el) => /(\/month|\/mo|monthly|yearly|per month|start for free|get started)/i.test($(el).text())).length;
@@ -947,53 +985,25 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     .flatMap((el) => $(el).find("a[href]").toArray())
     .map((el) => $(el).attr("href") ?? "")
     .filter((href) => /trustpilot|g2|capterra|getapp|producthunt|google/i.test(href)).length;
-  const bodyBlocks = $("body")
-    .children("section,article,main,div")
-    .toArray();
-  const lastQuarterStart = Math.max(Math.floor(bodyBlocks.length * 0.75), 0);
-  const finalQuarterBlocks = bodyBlocks.slice(lastQuarterStart);
-  const finalHeadingRegex = /\b(get started|start (free|now|today)|try [a-z]+ (free|today|now)|ready to)\b/i;
-  const finalCtaRegex = /\b(start|try|sign up|get started|book|request|get a demo|free trial)\b/i;
-  let finalCtaHeadingMatch = "";
-  let finalCtaTextMatch = "";
-  const hasBottomCta = finalQuarterBlocks.some((block) => {
-    const blockNode = $(block);
-    const heading = blockNode
-      .find("h1,h2,h3")
-      .toArray()
-      .map((el) => $(el).text().replace(/\s+/g, " ").trim())
-      .find((text) => finalHeadingRegex.test(text));
-    if (!heading) return false;
-    const cta = blockNode
-      .find("a,button,[role='button'],input[type='submit'],input[type='button']")
-      .toArray()
-      .map((el) => getInteractiveText(el))
-      .find((text) => finalCtaRegex.test(text));
-    if (!cta) return false;
-    finalCtaHeadingMatch = heading;
-    finalCtaTextMatch = cta;
-    return true;
-  });
-  const finalQuarterRiskReversalMatches = finalQuarterBlocks
-    .flatMap((block) => {
-      const blockNode = $(block);
-      const hasCta = blockNode
-        .find("a,button,[role='button'],input[type='submit'],input[type='button']")
-        .toArray()
-        .some((el) => finalCtaRegex.test(getInteractiveText(el)));
-      if (!hasCta) return [];
-      return collectRiskReversalMatches(blockNode.text().replace(/\s+/g, " ").trim(), 3);
-    })
-    .slice(0, 6);
-  const hasFinalQuarterRiskReversal = finalQuarterRiskReversalMatches.length > 0;
   const footerNode = $("footer").first();
+  const excludedFooterLinkRegex = /facebook|instagram|linkedin|youtube|twitter|x\.com|privacy|terms|cookie|legal|accessibility|sitemap|investor|partner/i;
+  const footerActionRegex = /\b(start|try|sign up|get started|book|demo|free trial|buy|subscribe|join|view plans?)\b/i;
   const footerDirectCtaTexts = (footerNode.length > 0
     ? footerNode.find("a,button,[role='button'],input[type='submit'],input[type='button']").toArray()
     : []
   )
     .map((el) => getInteractiveText(el))
-    .filter((text) => actionCtaRegex.test(text));
-  const footerCtaTexts = [...new Set(footerDirectCtaTexts)];
+    .filter((text) => footerActionRegex.test(text) && !excludedFooterLinkRegex.test(text));
+  const preFooterBlock = footerNode.length > 0 ? footerNode.prev("section,article,div").first() : null;
+  const preFooterCtaTexts =
+    preFooterBlock && preFooterBlock.length > 0
+      ? preFooterBlock
+          .find("a,button,[role='button'],input[type='submit'],input[type='button']")
+          .toArray()
+          .map((el) => getInteractiveText(el))
+          .filter((text) => footerActionRegex.test(text) && !excludedFooterLinkRegex.test(text))
+      : [];
+  const footerCtaTexts = [...new Set([...footerDirectCtaTexts, ...preFooterCtaTexts])];
   const footerHasSignIn = footerCtaTexts.some((text) => /(sign in|log in)/i.test(text));
   const footerScopeText = footerText;
   const footerHasContextLine = /(no credit card|cancel anytime|setup in|minutes|risk-free|free trial|no commitment)/i.test(
@@ -1161,24 +1171,26 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     "pricing-comparison-clarity": {
       key: "pricing-comparison-clarity",
       score:
-        (hasThreePlusPlanSignals || threePlusPlanPaths.length > 0) && (hasPricingTable || comparisonPaths.length > 0)
+        (hasThreePlusPlanSignals || threePlusPlanPaths.length > 0) &&
+        (hasPricingTable || hasStructuredPricingMatrix || comparisonPaths.length > 0)
           ? 84
           : hasThreePlusPlanSignals || threePlusPlanPaths.length > 0
             ? scannedPricingPaths.length > 0
-              ? 78
+              ? 82
               : 56
             : 74,
       details: `3+ plan signals detected: ${yesNo(
         hasThreePlusPlanSignals || threePlusPlanPaths.length > 0,
       )}. Comparison table/matrix detected: ${yesNo(
-        hasPricingTable || comparisonPaths.length > 0,
+        hasPricingTable || hasStructuredPricingMatrix || comparisonPaths.length > 0,
       )}. Pricing paths checked: ${formatList(scannedPricingPaths, "none", 3)}. Comparison signals found on: ${formatList(
         comparisonPaths,
         "none",
         3,
-      )}.`,
+      )}. On-page card-matrix detected: ${yesNo(hasStructuredPricingMatrix)}.`,
       recommendation:
-        (hasThreePlusPlanSignals || threePlusPlanPaths.length > 0) && !(hasPricingTable || comparisonPaths.length > 0)
+        (hasThreePlusPlanSignals || threePlusPlanPaths.length > 0) &&
+        !(hasPricingTable || hasStructuredPricingMatrix || comparisonPaths.length > 0)
           ? "For 3+ plans, add clearer side-by-side comparison signals so users can self-qualify quickly."
           : "Pricing comparison clarity looks acceptable for the detected plan structure.",
     },
@@ -1223,19 +1235,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
         hasThirdPartyReviewBadge || testimonialExternalReviewLinks > 0
           ? "External verification signals are present. Keep at least one independent review source visible."
           : "Add independent verification near testimonials (review-platform badges, ratings, or external profile links).",
-    },
-    "nav-architecture": {
-      key: "nav-architecture",
-      score: navLinks >= 4 && hasShopNav ? 84 : navLinks >= 2 ? 70 : 48,
-      details: `Navigation interactive items detected: ${navLinks}. Nav samples: ${formatList(
-        navLinkSamples,
-        "none",
-        8,
-      )}. Conversion-path nav item present: ${yesNo(
-        hasShopNav,
-      )}.`,
-      recommendation:
-        "Keep conversion paths obvious in navigation and include an always-visible action path to purchase/signup.",
     },
     "language-consistency": {
       key: "language-consistency",
@@ -1323,19 +1322,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
           ? "Keep conversion events instrumented (view, CTA click, checkout start, purchase) and monitor regularly."
           : "Install analytics and conversion event tracking before scaling CRO tests.",
     },
-    "final-cta-reinforcement": {
-      key: "final-cta-reinforcement",
-      score: hasBottomCta || hasFinalQuarterRiskReversal ? 84 : 46,
-      details: `Bottom-of-page CTA block detected in final page quarter: ${yesNo(
-        hasBottomCta,
-      )}. Matched heading: ${displayValue(finalCtaHeadingMatch)}. Matched CTA: ${displayValue(
-        finalCtaTextMatch,
-      )}. Nearby risk-reversal phrases: ${formatList(finalQuarterRiskReversalMatches, "none", 5)}.`,
-      recommendation:
-        hasBottomCta || hasFinalQuarterRiskReversal
-          ? "Final CTA reinforcement is present. Keep one-line value recap and friction reducer near the CTA."
-          : "Add a strong end-of-page CTA block that repeats core actions after users finish scanning.",
-    },
     "footer-cta-clarity": {
       key: "footer-cta-clarity",
       score: footerHasContextLine ? 82 : footerCtaTexts.length >= 2 ? 80 : footerCtaTexts.length === 1 ? 68 : 56,
@@ -1397,7 +1383,7 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     !hasAnalytics,
     mixedLanguageLikely || langMismatchLikely,
   ].filter(Boolean).length;
-  const highPenaltyCount = [formFieldCount > 8, !hasSupport, !hasShopNav, faqQuestionCount < 4].filter(Boolean).length;
+  const highPenaltyCount = [formFieldCount > 8, !hasSupport, faqQuestionCount < 4].filter(Boolean).length;
   const score = clamp(baseScore - criticalPenaltyCount * 7 - highPenaltyCount * 3, 15, 95);
 
   const checksPayload = CRO_AUDIT_CHECKLIST.map((item) => {
@@ -1435,7 +1421,7 @@ export async function runAuditJob(auditId: string) {
     const html = pageProbe.html;
     if (isCroAuditKeyword(audit.targetKeyword)) {
       const $ = load(html);
-      const title = $("title").text().trim();
+      const title = $("head > title").first().text().trim() || $("title").first().text().trim();
       const description = $('meta[name="description"]').attr("content") ?? "";
       const bodyText = $("body").text().replace(/\s+/g, " ").trim();
       const { score, checksPayload } = await buildCroChecks($, bodyText, title, description, audit.targetUrl);
@@ -1489,7 +1475,7 @@ export async function runAuditJob(auditId: string) {
     const livePageUrl = pageProbe.finalUrl;
     const origin = new URL(livePageUrl).origin;
 
-    const title = $("title").text().trim();
+    const title = $("head > title").first().text().trim() || $("title").first().text().trim();
     const description = $('meta[name="description"]').attr("content") ?? "";
     const metaRobots = parseMetaRobots($);
     const indexabilitySource = `${metaRobots} ${pageProbe.xRobotsTag}`.trim();

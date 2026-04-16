@@ -68,12 +68,6 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Testimonials, ratings, customer counts, and credibility cues.",
   },
   {
-    key: "nav-architecture",
-    title: "Navigation and Information Architecture",
-    priority: "high",
-    description: "Conversion path clarity and friction from navigation structure.",
-  },
-  {
     key: "language-consistency",
     title: "Language Consistency",
     priority: "critical",
@@ -114,12 +108,6 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     title: "Analytics and Tracking Foundation",
     priority: "high",
     description: "Core analytics, tag manager, and conversion event instrumentation.",
-  },
-  {
-    key: "final-cta-reinforcement",
-    title: "Final CTA Reinforcement",
-    priority: "high",
-    description: "Checks if end-of-page CTA repeats core actions with clear value recap.",
   },
   {
     key: "footer-cta-clarity",

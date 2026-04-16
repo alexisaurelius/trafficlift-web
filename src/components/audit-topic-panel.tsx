@@ -198,7 +198,6 @@ const CRO_TOPICS: TopicConfig[] = [
       "pricing-comparison-clarity",
       "click-distance",
       "funnel-friction",
-      "final-cta-reinforcement",
       "footer-cta-clarity",
     ],
     icon: FileText,
@@ -221,7 +220,6 @@ const CRO_TOPICS: TopicConfig[] = [
     keys: [
       "technical-health",
       "analytics-tracking",
-      "nav-architecture",
       "language-consistency",
       "feature-cta-clarity",
     ],

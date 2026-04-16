@@ -63,7 +63,7 @@ async function fetchLiveKeywordCoverage(targetUrl: string, keywordCandidates: st
     if (!response.ok) return null;
     const html = await response.text();
     const $ = load(html);
-    const currentTitle = $("title").text().trim();
+    const currentTitle = $("head > title").first().text().trim() || $("title").first().text().trim();
     const currentH1 = $("h1").first().text().trim();
     return {
       currentTitle,

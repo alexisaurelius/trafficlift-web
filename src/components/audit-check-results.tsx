@@ -30,7 +30,6 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "pricing-comparison-clarity",
     "click-distance",
     "feature-cta-clarity",
-    "final-cta-reinforcement",
     "footer-cta-clarity",
   ],
   Technical: [
@@ -54,7 +53,6 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "funnel-friction",
     "technical-health",
     "analytics-tracking",
-    "nav-architecture",
     "language-consistency",
   ],
   Performance: [
