@@ -21,6 +21,7 @@ type CheckResult = {
   score: number;
   details: string;
   recommendation: string;
+  status?: "pass" | "fail" | "warn";
 };
 
 const PRIORITY_WEIGHT = {
@@ -299,6 +300,33 @@ function yesNo(value: boolean) {
   return value ? "yes" : "no";
 }
 
+const RISK_REVERSAL_REGEX =
+  /no credit card required|no credit card|cancel anytime|cancel any time|cancel whenever|free trial|try for free|try free|\b\d+[- ]?day(?:\s+free)?\s+trial\b|free for \d+ days|money[- ]back(?: guarantee)?|no commitment|no contract/gi;
+
+function collectRiskReversalMatches(text: string, limit = 8) {
+  return collectMatches(text, RISK_REVERSAL_REGEX, limit);
+}
+
+function enforceRecommendationTone(
+  recommendation: string,
+  status: "pass" | "fail" | "warn",
+) {
+  const normalized = recommendation.trim();
+  if (!normalized) return recommendation;
+
+  if (status === "fail") {
+    if (/^(add|replace|remove|reduce|move|rewrite|test)\b/i.test(normalized)) return normalized;
+    return `Add ${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}`;
+  }
+
+  if (status === "pass") {
+    if (/^(keep|maintain|continue|preserve)\b/i.test(normalized)) return normalized;
+    return `Keep ${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}`;
+  }
+
+  return normalized;
+}
+
 function displayValue(value: string) {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (!normalized) return "(empty)";
@@ -518,10 +546,11 @@ function formatCroReport(
       ? `Strong conversion baseline with selective optimization opportunities.`
       : `High-impact conversion friction was detected across key decision points.`,
   );
-  const topRisks = checks
-    .filter((c) => c.status !== "pass")
-    .sort((a, b) => croPriorityRank(b.priority) - croPriorityRank(a.priority))
-    .slice(0, 3);
+  const highCriticalFails = checks
+    .filter((c) => c.status === "fail" && (c.priority === "critical" || c.priority === "high"))
+    .sort((a, b) => croPriorityRank(b.priority) - croPriorityRank(a.priority));
+  const topRisks = highCriticalFails.slice(0, 7);
+  const hiddenRiskCount = Math.max(highCriticalFails.length - topRisks.length, 0);
   lines.push(``);
   lines.push(`## Critical Conversion Risks`);
   if (topRisks.length === 0) {
@@ -530,6 +559,9 @@ function formatCroReport(
     topRisks.forEach((risk) => {
       lines.push(`- ${risk.title}: ${risk.recommendation}`);
     });
+    if (hiddenRiskCount > 0) {
+      lines.push(`- +${hiddenRiskCount} more high/critical fail items in full checks list.`);
+    }
   }
   lines.push(``);
   lines.push(`## Checks`);
@@ -625,12 +657,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
   if (heroCtas.length === 0) {
     heroCtas = collectScopeCtas(h1FallbackContainer);
   }
-  if (heroCtas.length === 0) {
-    heroCtas = $("header,section,main,article")
-      .slice(0, 3)
-      .toArray()
-      .flatMap((el) => collectScopeCtas($(el)));
-  }
   const uniqueHeroCtas = [...new Set(heroCtas.map((text) => text.toLowerCase()))];
   const hasDualHeroCta = uniqueHeroCtas.length >= 2;
   const ctaInHero = uniqueHeroCtas.length > 0;
@@ -655,9 +681,8 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     6,
   );
   const hasAiPromptEarly = aiDiscoveryCueMatches.length > 0;
-  const heroHasReassuranceMicrocopy = /(no credit card|cancel anytime|full access|risk-free|free trial|no commitment|3 days free|7 days free|14 days free)/i.test(
-    heroText,
-  );
+  const heroRiskReversalMatches = collectRiskReversalMatches(heroText, 6);
+  const heroHasReassuranceMicrocopy = heroRiskReversalMatches.length > 0;
   const ctaButtonsCount = [...new Set(ctaButtons.map((text) => text.toLowerCase()))].length;
   const testimonialCueMatches = collectMatches(
     bodyText,
@@ -675,7 +700,9 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     .filter(Boolean)
     .slice(0, 8);
   const hasShopNav = headerLinks.some((el) => /(buy|shop|pricing|get started|sign up|checkout)/i.test($(el).text()));
-  const formFieldCount = $("form input, form select, form textarea").length;
+  const nativeFormFields = $("form input, form select, form textarea").toArray();
+  const interactionFields = $("[role='combobox'], [role='listbox'], [contenteditable='true']").toArray();
+  const formFieldCount = new Set([...nativeFormFields, ...interactionFields]).size;
   const schemaScripts = $('script[type="application/ld+json"]').toArray();
   const parsedSchemaTypes: string[] = [];
   schemaScripts.forEach((script) => {
@@ -701,31 +728,18 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     .map((el) => $(el).text().replace(/\s+/g, " ").trim())
     .filter((text) => /(faq|frequently asked|questions)/i.test(text))
     .slice(0, 5);
-  const hasFaqQuestionSet = $("details summary")
+  const accordionQuestionCount = $("details summary, button[aria-expanded], [role='button'][aria-expanded]")
     .toArray()
-    .filter((el) => /\?$/.test($(el).text().trim())).length >= 3;
+    .map((el) => $(el).text().trim())
+    .filter((text) => text.endsWith("?")).length;
+  const hasFaqSchema = parsedSchemaTypes.some((type) => /faqpage/i.test(type));
+  const hasFaqQuestionSet = accordionQuestionCount >= 3 || hasFaqSchema;
   const hasFaqSignals = hasFaqHeading || hasFaqQuestionSet;
-  const faqQuestionCount = $("section,article,div")
+  const faqQuestionCount = $("details summary, h2, h3, h4, button[aria-expanded], [role='button'][aria-expanded]")
     .toArray()
-    .filter((el) => /(faq|frequently asked|questions)/i.test($(el).text()))
-    .flatMap((el) => {
-      const section = $(el);
-      const detailQuestions = section
-        .find("details summary")
-        .toArray()
-        .map((node) => $(node).text().trim())
-        .filter((text) => text.endsWith("?"));
-      const headingQuestions = section
-        .find("h3,h4,p,li")
-        .toArray()
-        .map((node) => $(node).text().replace(/\s+/g, " ").trim())
-        .filter((text) => /\?$/.test(text));
-      return [...detailQuestions, ...headingQuestions];
-    }).length;
-  const hasUrgency = /(limited|ends soon|today only|free shipping|save \d+%|offer expires)/i.test(bodyText);
-  const hasRiskReversal = /(no credit card|cancel anytime|free trial|risk-free|money-back|no commitment|guarantee)/i.test(
-    bodyText,
-  );
+    .map((node) => $(node).text().replace(/\s+/g, " ").trim())
+    .filter((text) => text.endsWith("?")).length + (hasFaqSchema ? 3 : 0);
+  const hasRiskReversal = collectRiskReversalMatches(bodyText, 8).length > 0;
   const analyticsSignalMatches = collectMatches($.html() ?? "", /googletagmanager|gtag\(|datalayer|fbq\(|clarity|hotjar|analytics/gi, 8);
   const hasAnalytics = analyticsSignalMatches.length > 0;
   const hasProblemFraming = /(spreadsheets?|overkill|manual|slow|inefficient|stockouts?|friction|bottleneck|struggling)/i.test(
@@ -738,8 +752,34 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
   const viewCountSignals = (bodyText.match(/\b\d+(?:[.,]\d+)?\s?(?:k|m|b)?\s?(?:views?|watches?)\b/gi) ?? []).length;
   const hasProductImageDensity = $("img").length >= 8;
   const hasLiveProductProof = hasLiveTrendLanguage && (viewCountSignals >= 2 || hasProductImageDensity);
-  const quantifiedOutcomeCount = (bodyText.match(/(\d{1,3}(?:[.,]\d+)?\s?%|\d+(?:\.\d+)?x|\d+\+|\d+\s?(?:weeks?|months?|days?))/gi) ?? [])
-    .length;
+  const quantifiedPercentageMatches = collectMatches(bodyText, /\b\+?\d+(?:\.\d+)?\s?%/gi, 80);
+  const quantifiedScaleMatches = collectMatches(bodyText, /\b\d+(?:\.\d+)?\s?[KMBT]\+?\b/gi, 80);
+  const quantifiedMultiplierMatches = collectMatches(bodyText, /\b\d+x\b/gi, 80);
+  const quantifiedEntityMatches = collectMatches(
+    bodyText,
+    /\b\d{2,}\+?\s+(years|customers|users|brands|teams|integrations|countries|languages)\b/gi,
+    80,
+  );
+  const headingDescriptorMatches = $("strong,h2,h3")
+    .toArray()
+    .map((el) => {
+      const metricText = $(el).text().replace(/\s+/g, " ").trim();
+      if (!/\d/.test(metricText)) return "";
+      const siblingText = ($(el).next().text() || "").replace(/\s+/g, " ").trim();
+      const siblingWordCount = siblingText.split(/\s+/).filter(Boolean).length;
+      if (!siblingText || siblingWordCount > 4) return "";
+      return `${metricText} ${siblingText}`;
+    })
+    .filter(Boolean)
+    .slice(0, 80);
+  const quantifiedOutcomeMatches = [
+    ...quantifiedPercentageMatches,
+    ...quantifiedScaleMatches,
+    ...quantifiedMultiplierMatches,
+    ...quantifiedEntityMatches,
+    ...headingDescriptorMatches,
+  ];
+  const quantifiedOutcomeCount = new Set(quantifiedOutcomeMatches.map((item) => item.toLowerCase())).size;
   const readMoreCtaCount = $("a,button")
     .toArray()
     .filter((el) => /^read more\b/i.test($(el).text().replace(/\s+/g, " ").trim())).length;
@@ -813,14 +853,45 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     .flatMap((el) => $(el).find("a[href]").toArray())
     .map((el) => $(el).attr("href") ?? "")
     .filter((href) => /trustpilot|g2|capterra|getapp|producthunt|google/i.test(href)).length;
-  const hasBottomCta = sectionNodes
-    .slice(-2)
-    .some((section) =>
-      $(section)
-        .find("a,button")
+  const bodyBlocks = $("body")
+    .children("section,article,main,div")
+    .toArray();
+  const lastQuarterStart = Math.max(Math.floor(bodyBlocks.length * 0.75), 0);
+  const finalQuarterBlocks = bodyBlocks.slice(lastQuarterStart);
+  const finalHeadingRegex = /\b(get started|start (free|now|today)|try [a-z]+ (free|today|now)|ready to)\b/i;
+  const finalCtaRegex = /\b(start|try|sign up|get started|book|request|get a demo|free trial)\b/i;
+  let finalCtaHeadingMatch = "";
+  let finalCtaTextMatch = "";
+  const hasBottomCta = finalQuarterBlocks.some((block) => {
+    const blockNode = $(block);
+    const heading = blockNode
+      .find("h1,h2,h3")
+      .toArray()
+      .map((el) => $(el).text().replace(/\s+/g, " ").trim())
+      .find((text) => finalHeadingRegex.test(text));
+    if (!heading) return false;
+    const cta = blockNode
+      .find("a,button,[role='button'],input[type='submit'],input[type='button']")
+      .toArray()
+      .map((el) => getInteractiveText(el))
+      .find((text) => finalCtaRegex.test(text));
+    if (!cta) return false;
+    finalCtaHeadingMatch = heading;
+    finalCtaTextMatch = cta;
+    return true;
+  });
+  const finalQuarterRiskReversalMatches = finalQuarterBlocks
+    .flatMap((block) => {
+      const blockNode = $(block);
+      const hasCta = blockNode
+        .find("a,button,[role='button'],input[type='submit'],input[type='button']")
         .toArray()
-        .some((el) => actionCtaRegex.test($(el).text().replace(/\s+/g, " ").trim())),
-    );
+        .some((el) => finalCtaRegex.test(getInteractiveText(el)));
+      if (!hasCta) return [];
+      return collectRiskReversalMatches(blockNode.text().replace(/\s+/g, " ").trim(), 3);
+    })
+    .slice(0, 6);
+  const hasFinalQuarterRiskReversal = finalQuarterRiskReversalMatches.length > 0;
   const footerNode = $("footer").first();
   const footerDirectCtaTexts = (footerNode.length > 0
     ? footerNode.find("a,button,[role='button'],input[type='submit'],input[type='button']").toArray()
@@ -828,27 +899,9 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
   )
     .map((el) => getInteractiveText(el))
     .filter((text) => actionCtaRegex.test(text));
-  const finalSectionCtaTexts = sectionNodes
-    .slice(-3)
-    .flatMap((section) =>
-      $(section)
-        .find("a,button,[role='button'],input[type='submit'],input[type='button']")
-        .toArray()
-        .map((el) => getInteractiveText(el))
-        .filter((text) => actionCtaRegex.test(text)),
-    );
-  const footerCtaSource = footerDirectCtaTexts.length > 0 ? footerDirectCtaTexts : finalSectionCtaTexts;
-  const footerCtaTexts = [...new Set(footerCtaSource)];
+  const footerCtaTexts = [...new Set(footerDirectCtaTexts)];
   const footerHasSignIn = footerCtaTexts.some((text) => /(sign in|log in)/i.test(text));
-  const footerScopeText =
-    footerNode.length > 0
-      ? footerText
-      : sectionNodes
-          .slice(-3)
-          .map((section) => $(section).text())
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
+  const footerScopeText = footerText;
   const footerHasContextLine = /(no credit card|cancel anytime|setup in|minutes|risk-free|free trial|no commitment)/i.test(
     footerScopeText,
   );
@@ -905,7 +958,11 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     "cta-microcopy-reassurance": {
       key: "cta-microcopy-reassurance",
       score: heroHasReassuranceMicrocopy ? 88 : 46,
-      details: `Risk-reversal microcopy near hero CTA detected: ${yesNo(heroHasReassuranceMicrocopy)}.`,
+      details: `Risk-reversal microcopy near hero CTA detected: ${yesNo(heroHasReassuranceMicrocopy)}. Matched phrases: ${formatList(
+        heroRiskReversalMatches,
+        "none",
+        6,
+      )}.`,
       recommendation:
         heroHasReassuranceMicrocopy
           ? "Keep reassurance microcopy directly below hero CTA and concise."
@@ -942,12 +999,17 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     },
     "quantified-outcomes": {
       key: "quantified-outcomes",
-      score: quantifiedOutcomeCount >= 4 ? 86 : quantifiedOutcomeCount >= 2 ? 66 : 42,
-      details: `Quantified outcome cues detected: ${quantifiedOutcomeCount}.`,
+      score: quantifiedOutcomeCount >= 6 ? 86 : quantifiedOutcomeCount >= 3 ? 72 : 42,
+      status: quantifiedOutcomeCount >= 6 ? "pass" : quantifiedOutcomeCount >= 3 ? "warn" : "fail",
+      details: `Quantified outcome cues detected: ${quantifiedOutcomeCount}. Matched cues: ${formatList(
+        quantifiedOutcomeMatches,
+        "none",
+        12,
+      )}.`,
       recommendation:
-        quantifiedOutcomeCount >= 2
+        quantifiedOutcomeCount >= 6
           ? "Keep quantified outcomes near CTAs and feature claims to reinforce credibility."
-          : "Add concrete proof points (% uplift, time-to-value, implementation timelines) in key decision sections.",
+          : "Add specific numeric proof (percentages, multipliers, customer/volume counts) near primary CTAs and feature headers.",
     },
     "before-after-comparison": {
       key: "before-after-comparison",
@@ -1130,13 +1192,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
           ? "FAQ depth is strong. Keep adding high-anxiety objections (billing, fit, security, cancellation)."
           : "Expand FAQ depth with high-anxiety questions (cancellation, usage limits, fit, security, differentiation).",
     },
-    "urgency-incentives": {
-      key: "urgency-incentives",
-      score: hasUrgency && hasRiskReversal ? 84 : hasUrgency || hasRiskReversal ? 66 : 44,
-      details: `Urgency messaging detected: ${yesNo(hasUrgency)}. Risk-reversal cues detected: ${yesNo(hasRiskReversal)}.`,
-      recommendation:
-        "Use honest urgency and risk-reversal cues (no credit card, cancel anytime, guarantees) near CTAs.",
-    },
     "analytics-tracking": {
       key: "analytics-tracking",
       score: hasAnalytics ? 84 : 18,
@@ -1152,21 +1207,28 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
     },
     "final-cta-reinforcement": {
       key: "final-cta-reinforcement",
-      score: hasBottomCta ? 84 : 46,
-      details: `Bottom-of-page CTA block detected in final sections: ${yesNo(hasBottomCta)}.`,
+      score: hasBottomCta || hasFinalQuarterRiskReversal ? 84 : 46,
+      details: `Bottom-of-page CTA block detected in final page quarter: ${yesNo(
+        hasBottomCta,
+      )}. Matched heading: ${displayValue(finalCtaHeadingMatch)}. Matched CTA: ${displayValue(
+        finalCtaTextMatch,
+      )}. Nearby risk-reversal phrases: ${formatList(finalQuarterRiskReversalMatches, "none", 5)}.`,
       recommendation:
-        hasBottomCta
+        hasBottomCta || hasFinalQuarterRiskReversal
           ? "Final CTA reinforcement is present. Keep one-line value recap and friction reducer near the CTA."
           : "Add a strong end-of-page CTA block that repeats core actions after users finish scanning.",
     },
     "footer-cta-clarity": {
       key: "footer-cta-clarity",
       score: footerHasContextLine ? 82 : footerCtaTexts.length >= 2 ? 80 : footerCtaTexts.length === 1 ? 68 : 56,
+      status: footerCtaTexts.length === 0 ? "warn" : undefined,
       details: `Footer CTA count: ${footerCtaTexts.length}. Footer context/risk-reversal microcopy detected: ${yesNo(
         footerHasContextLine,
       )}. Footer CTA samples: ${formatList(footerCtaTexts, "none", 4)}. Sign-in CTA present in footer: ${yesNo(footerHasSignIn)}.`,
       recommendation:
-        footerHasContextLine
+        footerCtaTexts.length === 0
+          ? "Add a dedicated primary CTA in the footer region."
+          : footerHasContextLine
           ? "Footer CTA context is clear. Keep friction-reducing microcopy close to signup action."
           : "Add a short footer CTA context line (e.g., no credit card, setup time, cancel anytime) to reduce hesitation.",
     },
@@ -1223,13 +1285,15 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, titl
   const checksPayload = CRO_AUDIT_CHECKLIST.map((item) => {
     const check = checksByKey[item.key];
     const checkScore = check?.score ?? 50;
+    const status = check?.status ?? statusFromCheckScore(checkScore);
+    const rawRecommendation = check?.recommendation ?? "Review this area and apply conversion-focused improvements.";
     return {
       key: item.key,
       title: item.title,
       priority: item.priority,
-      status: statusFromCheckScore(checkScore),
+      status,
       details: check?.details ?? item.description,
-      recommendation: check?.recommendation ?? "Review this area and apply conversion-focused improvements.",
+      recommendation: enforceRecommendationTone(rawRecommendation, status),
     };
   });
 

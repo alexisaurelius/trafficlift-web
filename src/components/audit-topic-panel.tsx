@@ -34,12 +34,11 @@ function buildPlainWhy(
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .slice(0, 2)
     .join(" ");
 
   if (auditType === "cro") {
-    if (detailsSummary) {
-      return detailsSummary;
+    if (details) {
+      return details.replace(/\s+/g, " ").trim();
     }
     return check.recommendation ?? "This item affects conversion performance and should be reviewed.";
   }
@@ -196,13 +195,9 @@ const CRO_TOPICS: TopicConfig[] = [
       "cta-microcopy-reassurance",
       "hero-ai-prompt",
       "cta-audit",
-      "pricing-transparency",
-      "pricing-model-clarity",
-      "pricing-plan-positioning",
       "pricing-comparison-clarity",
       "click-distance",
       "funnel-friction",
-      "form-friction-detail",
       "final-cta-reinforcement",
       "footer-cta-clarity",
     ],
@@ -213,23 +208,10 @@ const CRO_TOPICS: TopicConfig[] = [
     label: "Trust",
     keys: [
       "social-proof",
-      "trust-cta-proximity",
-      "early-social-proof-badges",
-      "testimonial-outcome-quality",
       "support-objections",
-      "urgency-incentives",
       "value-proposition",
-      "problem-framing",
       "quantified-outcomes",
-      "before-after-comparison",
-      "live-product-proof",
-      "checkout-confidence",
-      "testimonial-third-party-verification",
       "faq-depth",
-      "intent-mismatch",
-      "security-compliance-badge",
-      "founder-credibility-story",
-      "affiliate-program-leverage",
     ],
     icon: ShieldCheck,
   },
@@ -239,11 +221,8 @@ const CRO_TOPICS: TopicConfig[] = [
     keys: [
       "technical-health",
       "analytics-tracking",
-      "mobile-experience",
       "nav-architecture",
       "language-consistency",
-      "offer-communication",
-      "integration-ecosystem-proof",
       "feature-cta-clarity",
     ],
     icon: Settings,
@@ -259,7 +238,8 @@ function priorityWeight(priority: string) {
 
 function statusWeight(status: string) {
   if (status === "fail") return 0;
-  return 1;
+  if (status === "warn") return 1;
+  return 2;
 }
 
 function suggestionSort(a: CheckItem, b: CheckItem) {
@@ -283,6 +263,7 @@ function priorityPill(priority: string) {
 
 function statusPill(status: string) {
   if (status === "fail") return "bg-rose-50 text-rose-700";
+  if (status === "warn") return "bg-amber-100 text-amber-800";
   return "bg-emerald-50 text-emerald-700";
 }
 

@@ -27,14 +27,9 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "before-after-comparison",
     "live-product-proof",
     "cta-audit",
-    "pricing-transparency",
-    "pricing-model-clarity",
-    "pricing-plan-positioning",
     "pricing-comparison-clarity",
     "click-distance",
-    "offer-communication",
     "feature-cta-clarity",
-    "intent-mismatch",
     "final-cta-reinforcement",
     "footer-cta-clarity",
   ],
@@ -57,13 +52,10 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "internal-links-health",
     "entry-experience",
     "funnel-friction",
-    "form-friction-detail",
     "technical-health",
-    "mobile-experience",
     "analytics-tracking",
     "nav-architecture",
     "language-consistency",
-    "integration-ecosystem-proof",
   ],
   Performance: [
     "pagespeed",
@@ -77,17 +69,8 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "eeat-signals",
     "author-credibility",
     "social-proof",
-    "trust-cta-proximity",
-    "early-social-proof-badges",
-    "testimonial-outcome-quality",
-    "testimonial-third-party-verification",
     "support-objections",
     "faq-depth",
-    "urgency-incentives",
-    "checkout-confidence",
-    "security-compliance-badge",
-    "founder-credibility-story",
-    "affiliate-program-leverage",
   ],
   Other: [],
 };
@@ -150,6 +133,7 @@ function groupByCategory(checks: CheckItem[]) {
 
 function statusPill(status: string) {
   if (status === "pass") return "bg-emerald-50 text-emerald-700";
+  if (status === "warn") return "bg-amber-100 text-amber-800";
   return "bg-rose-50 text-rose-700";
 }
 

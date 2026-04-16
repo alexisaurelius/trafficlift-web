@@ -136,9 +136,17 @@ export default async function AuditDetailsPage({
   const topCroRisks =
     auditType === "cro"
       ? [...failChecks]
+          .filter((check) => check.priority === "critical" || check.priority === "high")
           .sort((a, b) => priorityRank(b.priority) - priorityRank(a.priority))
-          .slice(0, 3)
+          .slice(0, 7)
       : [];
+  const hiddenCroRiskCount =
+    auditType === "cro"
+      ? Math.max(
+          failChecks.filter((check) => check.priority === "critical" || check.priority === "high").length - topCroRisks.length,
+          0,
+        )
+      : 0;
   const scoreContext = auditType === "cro" ? getCroScoreContext(score) : getScoreContext(score);
   const scoreColor = score >= 80 ? "#22c55e" : score >= 60 ? "#f59e0b" : "#ef4444";
   const auditedOn = audit.completedAt ?? audit.updatedAt ?? audit.createdAt;
@@ -238,6 +246,9 @@ export default async function AuditDetailsPage({
                   <p className="mt-1 text-sm text-rose-900/85">{risk.recommendation ?? "Review this item immediately."}</p>
                 </li>
               ))}
+              {hiddenCroRiskCount > 0 ? (
+                <li className="text-sm font-semibold text-rose-800/85">+{hiddenCroRiskCount} more high/critical fails below.</li>
+              ) : null}
             </ul>
           )}
         </section>
