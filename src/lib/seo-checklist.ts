@@ -39,12 +39,6 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Semantic H2/H3 ordering and section relevance.",
   },
   {
-    key: "keyword-usage",
-    title: "Main Content Length & Mentions",
-    priority: "low",
-    description: "Word count and target phrase mentions in primary content (informational, not a ranking score).",
-  },
-  {
     key: "structured-data",
     title: "Structured Data Validity",
     priority: "high",
@@ -54,7 +48,7 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     key: "schema-coverage",
     title: "Schema Coverage by Type",
     priority: "high",
-    description: "Organization/WebSite and optional FAQ JSON-LD where it matches visible content.",
+    description: "Organization and WebSite JSON-LD coverage.",
   },
   {
     key: "canonical",
@@ -93,12 +87,6 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Homepage and indexable URLs in sitemap.xml.",
   },
   {
-    key: "sitemap-depth",
-    title: "Sitemap Depth and Fresh URLs",
-    priority: "high",
-    description: "Coverage of deeper URLs such as articles and content hubs.",
-  },
-  {
     key: "robots",
     title: "Robots Rules",
     priority: "low",
@@ -108,7 +96,7 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     key: "robots-ai-policy",
     title: "AI Crawler Policy",
     priority: "low",
-    description: "Explicit rules for AI crawlers and alignment with business goals.",
+    description: "Informational: which AI-related bot names appear in robots.txt (not a pass/fail).",
   },
   {
     key: "social-tags",
@@ -145,12 +133,6 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     title: "Internal Links Health",
     priority: "high",
     description: "Broken internal links and excessive redirect chains on linked pages.",
-  },
-  {
-    key: "site-architecture",
-    title: "Site Architecture Depth",
-    priority: "high",
-    description: "Balance between single-page UX and crawlable multi-page SEO structure.",
   },
   {
     key: "pagespeed",

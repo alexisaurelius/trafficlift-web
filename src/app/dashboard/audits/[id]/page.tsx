@@ -8,6 +8,7 @@ import { AuditCheckResults } from "@/components/audit-check-results";
 import { AuditTopicPanel } from "@/components/audit-topic-panel";
 import { ShareAuditButton } from "@/components/share-audit-button";
 import {
+  expandKeywordsForSemanticMatch,
   formatKeywordCandidatesAsQuotedList,
   matchesAnyKeywordEquivalent,
   parseKeywordCandidates,
@@ -110,7 +111,9 @@ export default async function AuditDetailsPage({
   const targetKeywordList = formatKeywordCandidatesAsQuotedList(fallbackCandidates);
   const auditType = auditTypeFromKeyword(audit.targetKeyword);
   const liveKeywordCoverage =
-    auditType === "seo" ? await fetchLiveKeywordCoverage(audit.targetUrl, fallbackCandidates) : null;
+    auditType === "seo"
+      ? await fetchLiveKeywordCoverage(audit.targetUrl, expandKeywordsForSemanticMatch(fallbackCandidates))
+      : null;
   const checklistTemplate = auditType === "cro" ? CRO_AUDIT_CHECKLIST : AUDIT_CHECKLIST;
   const activeCheckKeys = new Set(checklistTemplate.map((check) => check.key));
 
@@ -121,18 +124,25 @@ export default async function AuditDetailsPage({
   const score = audit.score ?? 0;
   const checksWithEffectivePriority = checksForReport.map((check) => {
     let priority = effectivePriorityForCheck(check);
-    let status: "pass" | "fail" | "warn" = check.status === "warn" ? "warn" : check.status === "pass" ? "pass" : "fail";
+    let status: "pass" | "fail" | "warn" | "skipped" =
+      check.status === "skipped"
+        ? "skipped"
+        : check.status === "warn"
+          ? "warn"
+          : check.status === "pass"
+            ? "pass"
+            : "fail";
     let details = check.details;
     let recommendation = check.recommendation;
 
-    if (check.key === "title-tag" && liveKeywordCoverage && !liveKeywordCoverage.titleHasKeyword) {
+    if (check.key === "title-tag" && liveKeywordCoverage && !liveKeywordCoverage.titleHasKeyword && status !== "skipped") {
       priority = "critical";
       status = "fail";
       details = `Current title: "${liveKeywordCoverage.currentTitle || "(empty)"}".\nTarget keyword(s): ${targetKeywordList}`;
       recommendation = `Include one target keyword naturally in the title and keep it 50-60 characters.`;
     }
 
-    if (check.key === "h1-count" && liveKeywordCoverage && !liveKeywordCoverage.h1HasKeyword) {
+    if (check.key === "h1-count" && liveKeywordCoverage && !liveKeywordCoverage.h1HasKeyword && status !== "skipped") {
       priority = "critical";
       status = "fail";
       details = `Current H1: "${liveKeywordCoverage.currentH1 || "(empty)"}".\nTarget keyword(s): ${targetKeywordList}`;
@@ -150,6 +160,7 @@ export default async function AuditDetailsPage({
   const passChecks = checksWithEffectivePriority.filter((check) => check.status === "pass");
   const warnChecks = checksWithEffectivePriority.filter((check) => check.status === "warn");
   const failChecks = checksWithEffectivePriority.filter((check) => check.status === "fail");
+  const skippedChecks = checksWithEffectivePriority.filter((check) => check.status === "skipped");
   const topCroRisks =
     auditType === "cro"
       ? [...failChecks]
@@ -269,6 +280,11 @@ export default async function AuditDetailsPage({
               <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-700">
                 {failChecks.length} Fails
               </span>
+              {auditType === "seo" && skippedChecks.length > 0 ? (
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-700">
+                  {skippedChecks.length} Skipped
+                </span>
+              ) : null}
               {auditType === "cro" ? (
                 <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-700">
                   {warnChecks.length} Warns

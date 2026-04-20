@@ -13,7 +13,6 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "h1-count",
     "h2-keyword",
     "heading-hierarchy",
-    "keyword-usage",
     "alt-text",
     "internal-linking",
     "hero-clarity",
@@ -31,7 +30,6 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "canonical-consistency",
     "hreflang",
     "sitemap",
-    "sitemap-depth",
     "duplicate-metadata",
     "robots",
     "robots-ai-policy",
@@ -50,7 +48,6 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "third-party-script-weight",
   ],
   Authority: [
-    "site-architecture",
     "support-objections",
     "faq-depth",
   ],
@@ -78,7 +75,7 @@ const TERM_HELP_BY_KEY: Record<string, string> = {
   pagespeed:
     "When the PageSpeed API is configured, this reflects Core Web Vitals (LCP, CLS, INP) for the audited URL.",
   robots: "robots.txt controls which parts of your site search engines can crawl.",
-  "robots-ai-policy": "Defines whether AI crawlers are allowed or blocked from your content.",
+  "robots-ai-policy": "Informational summary of AI-related bot name fragments mentioned in robots.txt (not a pass/fail verdict).",
   "safe-browsing":
     "When configured, Google Safe Browsing flags potential malware or phishing risks for the audited URL.",
   "twitter-card-coverage": "Twitter card tags control how your page looks when shared on social media.",
@@ -87,7 +84,8 @@ const TERM_HELP_BY_KEY: Record<string, string> = {
   "duplicate-metadata": "Detects duplicate title/description patterns across sampled site pages.",
   "render-blocking-resources": "Flags blocking CSS/JS in <head> that can delay first paint and interactivity.",
   "asset-caching-compression": "Checks whether core JS/CSS assets are cached and compressed.",
-  "third-party-script-weight": "Tracks external script volume and vendor domains that increase page weight.",
+  "third-party-script-weight":
+    "Counts scripts from origins outside the page’s registrable domain (same company subdomains are grouped as first-party).",
 };
 
 function getCategoryByKey(key: string): Category {
@@ -116,6 +114,7 @@ function groupByCategory(checks: CheckItem[]) {
 function statusPill(status: string) {
   if (status === "pass") return "bg-emerald-50 text-emerald-700";
   if (status === "warn") return "bg-amber-100 text-amber-800";
+  if (status === "skipped") return "bg-slate-100 text-slate-700";
   return "bg-rose-50 text-rose-700";
 }
 
@@ -137,11 +136,12 @@ export function AuditCheckResults({ checks }: { checks: CheckItem[] }) {
       all: checks.length,
       fail: checks.filter((check) => check.status === "fail").length,
       pass: checks.filter((check) => check.status === "pass").length,
+      skipped: checks.filter((check) => check.status === "skipped").length,
     }),
     [checks],
   );
 
-  const [activeStatus, setActiveStatus] = useState<"all" | "fail" | "pass">("all");
+  const [activeStatus, setActiveStatus] = useState<"all" | "fail" | "pass" | "skipped">("all");
 
   const filteredChecks = useMemo(
     () => (activeStatus === "all" ? checks : checks.filter((check) => check.status === activeStatus)),
@@ -150,15 +150,17 @@ export function AuditCheckResults({ checks }: { checks: CheckItem[] }) {
 
   const grouped = useMemo(() => groupByCategory(filteredChecks), [filteredChecks]);
 
-  const filterBtnClass = (status: "all" | "fail" | "pass") => {
+  const filterBtnClass = (status: "all" | "fail" | "pass" | "skipped") => {
     const base = "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide transition";
     if (status === activeStatus) {
       if (status === "all") return `${base} bg-[var(--primary)] text-white`;
       if (status === "fail") return `${base} bg-rose-200 text-rose-800`;
+      if (status === "skipped") return `${base} bg-slate-200 text-slate-800`;
       return `${base} bg-emerald-200 text-emerald-800`;
     }
     if (status === "all") return `${base} bg-[var(--surface-container-low)] text-[var(--on-surface)]/75 hover:bg-[var(--surface-container)]`;
     if (status === "fail") return `${base} bg-rose-50 text-rose-700 hover:bg-rose-100`;
+    if (status === "skipped") return `${base} bg-slate-50 text-slate-700 hover:bg-slate-100`;
     return `${base} bg-emerald-50 text-emerald-700 hover:bg-emerald-100`;
   };
 
@@ -166,7 +168,7 @@ export function AuditCheckResults({ checks }: { checks: CheckItem[] }) {
     <article className="rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-6 shadow-[0_12px_40px_rgba(0,22,57,0.06)]">
       <h2 className="font-manrope text-xl font-extrabold">Check Results</h2>
       <p className="mt-1 text-sm text-[var(--on-surface)]/70">
-        Full breakdown of all checks. Use the filter to focus on fails or passes.
+        Full breakdown of all checks. “Skipped” means the integration was not run — not a pass or fail on your page.
       </p>
       <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-[var(--on-surface)]/55">Filter by status</p>
       <div className="mt-2 flex flex-wrap gap-2">
@@ -178,6 +180,9 @@ export function AuditCheckResults({ checks }: { checks: CheckItem[] }) {
         </button>
         <button type="button" onClick={() => setActiveStatus("pass")} className={filterBtnClass("pass")}>
           {counts.pass} Passes
+        </button>
+        <button type="button" onClick={() => setActiveStatus("skipped")} className={filterBtnClass("skipped")}>
+          {counts.skipped} Skipped
         </button>
       </div>
 
@@ -193,7 +198,11 @@ export function AuditCheckResults({ checks }: { checks: CheckItem[] }) {
                   <div
                     key={check.id}
                     className={`rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_6%,white)] p-4 ${
-                      check.status === "pass" ? "bg-emerald-50/40" : "bg-[var(--surface)]"
+                      check.status === "pass"
+                        ? "bg-emerald-50/40"
+                        : check.status === "skipped"
+                          ? "bg-slate-50/80"
+                          : "bg-[var(--surface)]"
                     }`}
                   >
                     <div className="flex flex-wrap items-center gap-2">

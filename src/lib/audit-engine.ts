@@ -202,13 +202,21 @@ async function fetchText(url: string) {
   }
 }
 
+const CACHE_STRONG_THRESHOLD_SEC = 86400;
+
 function hasStrongCacheControl(cacheControlHeader: string) {
   const value = cacheControlHeader.toLowerCase();
   if (!value) return false;
   if (value.includes("immutable")) return true;
   const match = value.match(/max-age=(\d+)/i);
   if (!match) return false;
-  return Number(match[1]) >= 86400;
+  return Number(match[1]) >= CACHE_STRONG_THRESHOLD_SEC;
+}
+
+function formatCacheControlEvidence(probes: AssetHeaderProbe[]) {
+  return probes
+    .map((p) => `${p.url}\n  Cache-Control: ${p.cacheControl.trim() || "(none)"}`)
+    .join("\n");
 }
 
 function isLikelyCompressibleAsset(url: string, contentTypeHeader: string) {
@@ -313,6 +321,69 @@ function parseRobotsSitemapUrls(robotsText: string | null, baseUrl: string) {
     .filter((entry): entry is string => Boolean(entry));
 
   return [...new Set(urls)];
+}
+
+/** Naive registrable domain (last two labels); good enough to group same-org subdomains vs vendors. */
+function getRegistrableDomain(hostname: string) {
+  const parts = hostname.toLowerCase().split(".").filter(Boolean);
+  if (parts.length < 2) return hostname.toLowerCase();
+  return parts.slice(-2).join(".");
+}
+
+const MAX_SITEMAP_DOC_FETCHES = 150;
+
+/**
+ * Walk sitemap indexes recursively (child .xml files) and collect page <loc> URLs from urlsets.
+ * Stops after MAX_SITEMAP_DOC_FETCHES documents to bound audit time.
+ */
+async function collectSitemapPageUrls(seedUrls: string[], origin: string) {
+  const queued = [
+    ...new Set(seedUrls.map((u) => safeUrl(u, origin)?.toString()).filter((u): u is string => Boolean(u))),
+  ];
+  const seenSitemap = new Set<string>();
+  const pageUrls = new Set<string>();
+  let docsFetched = 0;
+  let stoppedEarly = false;
+
+  while (queued.length > 0 && docsFetched < MAX_SITEMAP_DOC_FETCHES) {
+    const url = queued.shift()!;
+    const key = url.split("#")[0];
+    if (seenSitemap.has(key)) continue;
+    seenSitemap.add(key);
+    const text = await fetchText(url);
+    docsFetched += 1;
+    if (!text) continue;
+
+    const locs = parseSitemapLocs(text);
+    const isIndex = /<sitemapindex[\s>]/i.test(text);
+
+    if (isIndex) {
+      for (const loc of locs) {
+        const next = safeUrl(loc, origin)?.toString();
+        if (next && !seenSitemap.has(next.split("#")[0])) queued.push(next);
+      }
+      continue;
+    }
+
+    const xmlLikeShare =
+      locs.length > 0 ? locs.filter((l) => /\.xml($|\?)/i.test(l)).length / locs.length : 0;
+    if (!/<urlset[\s>]/i.test(text) && xmlLikeShare > 0.35 && locs.length >= 2) {
+      for (const loc of locs) {
+        const next = safeUrl(loc, origin)?.toString();
+        if (next && /\.xml($|\?)/i.test(next) && !seenSitemap.has(next.split("#")[0])) queued.push(next);
+      }
+      continue;
+    }
+
+    for (const loc of locs) {
+      if (!loc || /\.xml($|\?)/i.test(loc)) continue;
+      pageUrls.add(loc);
+    }
+  }
+
+  if (queued.length > 0 && docsFetched >= MAX_SITEMAP_DOC_FETCHES) stoppedEarly = true;
+
+  return { pageUrls: [...pageUrls], docsFetched, stoppedEarly };
 }
 
 function normalizePageUrlForComparison(url: URL) {
@@ -628,21 +699,6 @@ function parseTitleDescription(html: string) {
   };
 }
 
-/** Primary visible copy: prefer <main>, else <article>, else body with chrome stripped. */
-function extractPrimaryContentText($: ReturnType<typeof load>) {
-  const main = $("main, [role='main']").first();
-  if (main.length) return main.text().replace(/\s+/g, " ").trim();
-  const article = $("article").first();
-  if (article.length) return article.text().replace(/\s+/g, " ").trim();
-  const shell = $("body").clone();
-  shell
-    .find(
-      "header, nav, footer, [role='banner'], [role='navigation'], [role='contentinfo'], [aria-hidden='true'], script, style, noscript",
-    )
-    .remove();
-  return shell.text().replace(/\s+/g, " ").trim();
-}
-
 /** First heading in main, or first outside header/nav/footer landmarks (not document-order mega-menu). */
 function firstStructuralHeadingTag($: ReturnType<typeof load>) {
   const main = $("main, [role='main']").first();
@@ -773,11 +829,13 @@ function formatReport(
   const reportKeywordList = formatKeywordCandidatesAsQuotedList(
     reportKeywords.length > 0 ? reportKeywords : [keyword],
   );
+  const isActionableIssue = (c: (typeof checks)[number]) =>
+    c.status !== "pass" && c.status !== "skipped";
   const byPriority = {
-    critical: checks.filter((c) => c.priority === "critical" && c.status !== "pass"),
-    high: checks.filter((c) => c.priority === "high" && c.status !== "pass"),
-    medium: checks.filter((c) => c.priority === "medium" && c.status !== "pass"),
-    low: checks.filter((c) => c.priority === "low" && c.status !== "pass"),
+    critical: checks.filter((c) => c.priority === "critical" && isActionableIssue(c)),
+    high: checks.filter((c) => c.priority === "high" && isActionableIssue(c)),
+    medium: checks.filter((c) => c.priority === "medium" && isActionableIssue(c)),
+    low: checks.filter((c) => c.priority === "low" && isActionableIssue(c)),
   };
 
   const lines: string[] = [];
@@ -802,6 +860,14 @@ function formatReport(
     lines.push(`Assessment: ${check.details}`);
     lines.push(`Recommendation: ${check.recommendation}`);
   });
+  const skippedChecks = checks.filter((c) => c.status === "skipped");
+  if (skippedChecks.length > 0) {
+    lines.push(``);
+    lines.push(`## Not measured (integrations)`);
+    skippedChecks.forEach((check) => {
+      lines.push(`- ${check.title}: ${check.details}`);
+    });
+  }
   lines.push(``);
   lines.push(`## Prioritized Action Plan`);
   lines.push(``);
@@ -1885,10 +1951,6 @@ export async function runAuditJob(auditId: string) {
     const structuralHeading = firstStructuralHeadingTag($);
     const firstHeadingTag = structuralHeading.tag;
     const firstHeadingIsH1 = structuralHeading.found && firstHeadingTag === "h1";
-    const primaryContentText = extractPrimaryContentText($);
-    const wordCount = primaryContentText ? primaryContentText.split(/\s+/).filter(Boolean).length : 0;
-    const keywordCount = countExactKeywordMatches(primaryContentText, activeKeywords);
-    const keywordDensity = wordCount > 0 ? (keywordCount / wordCount) * 100 : 0;
     const exactKeywordInMetaCount = countExactKeywordMatches(description, activeKeywords);
     const headingHierarchyIssues: string[] = [];
     if (h1Count !== 1) headingHierarchyIssues.push(`expected exactly one H1 but found ${h1Count}`);
@@ -1948,11 +2010,15 @@ export async function runAuditJob(auditId: string) {
         return Boolean(resolved && resolved.origin !== origin);
       }),
     )];
-    const thirdPartyScriptDomains = [...new Set(
-      thirdPartyScriptUrls
-        .map((scriptUrl) => safeUrl(scriptUrl, livePageUrl)?.hostname.toLowerCase() ?? "")
-        .filter(Boolean),
-    )];
+    const pageHostname = new URL(livePageUrl).hostname;
+    const pageOrg = getRegistrableDomain(pageHostname);
+    const scriptsByOrg = thirdPartyScriptUrls.map((scriptUrl) => {
+      const host = safeUrl(scriptUrl, livePageUrl)?.hostname.toLowerCase() ?? "";
+      const org = getRegistrableDomain(host);
+      return { url: scriptUrl, host, org, sameOrg: org === pageOrg };
+    });
+    const crossOrgScripts = scriptsByOrg.filter((s) => !s.sameOrg);
+    const crossOrgDomains = [...new Set(crossOrgScripts.map((s) => s.org))];
 
     const coreAssetCandidates = [...new Set([...sameOriginScriptUrls, ...stylesheetUrls])].slice(0, 12);
     const coreAssetHeaderProbes = await Promise.all(coreAssetCandidates.map((url) => fetchAssetHeaders(url)));
@@ -1977,14 +2043,6 @@ export async function runAuditJob(auditId: string) {
       const href = $(a).attr("href") ?? "";
       return !href.startsWith("#") && href !== "/" && href !== `${origin}/`;
     });
-    const internalUniquePaths = new Set(
-      internalAnchors
-        .map((a) => $(a).attr("href") ?? "")
-        .map((href) => safeUrl(href, audit.targetUrl))
-        .filter((url): url is URL => Boolean(url))
-        .map((url) => `${url.origin}${url.pathname}`)
-        .filter((url) => url.startsWith(origin)),
-    );
 
     const schemaScripts = $('script[type="application/ld+json"]').toArray();
     const parsedSchemaTypes: string[] = [];
@@ -2018,7 +2076,6 @@ export async function runAuditJob(auditId: string) {
 
     const robotsText = await fetchText(`${origin}/robots.txt`);
     const robotsLower = robotsText?.toLowerCase() ?? "";
-    const aiBotBlocked = /(claudebot|gptbot|bytespider|ccbot|google-extended)/i.test(robotsLower);
     const matchedAiBots = ["claudebot", "gptbot", "bytespider", "ccbot", "google-extended"].filter((bot) =>
       robotsLower.includes(bot),
     );
@@ -2037,26 +2094,11 @@ export async function runAuditJob(auditId: string) {
     const reachableRootSitemaps = rootSitemapTexts.filter((entry) => Boolean(entry.text));
     const reachableRootSitemapUrls = reachableRootSitemaps.map((entry) => entry.sitemapUrl);
 
-    const nestedSitemapUrls = [...new Set(
-      reachableRootSitemaps.flatMap((entry) =>
-        parseSitemapLocs(entry.text).filter((loc) => /\.xml($|\?)/i.test(loc)),
-      ),
-    )].slice(0, 20);
+    const sitemapWalk = await collectSitemapPageUrls(rootSitemapCandidates, origin);
+    const sitemapLocs = sitemapWalk.pageUrls;
+    const sitemapDocsFetched = sitemapWalk.docsFetched;
+    const sitemapStoppedEarly = sitemapWalk.stoppedEarly;
 
-    const nestedSitemapTexts = await Promise.all(
-      nestedSitemapUrls.map(async (sitemapUrl) => ({
-        sitemapUrl,
-        text: await fetchText(sitemapUrl),
-      })),
-    );
-
-    const sitemapLocs = [
-      ...new Set(
-        [...reachableRootSitemaps, ...nestedSitemapTexts]
-          .flatMap((entry) => parseSitemapLocs(entry.text))
-          .filter((loc) => !/\.xml($|\?)/i.test(loc)),
-      ),
-    ];
     const sampleSitemapLocs = sitemapLocs.slice(0, 5);
     const sitemapSampleForCrawl = [...new Set([`${origin}/`, ...sitemapLocs])].slice(0, 30);
 
@@ -2071,11 +2113,6 @@ export async function runAuditJob(auditId: string) {
     const submittedPageInSitemap = submittedComparable ? sitemapComparablePages.has(submittedComparable) : false;
 
     const sitemapHasHome = sitemapComparablePages.has(normalizeUrl(`${origin}/`));
-    const sitemapBlogArticleCount = [...sitemapComparablePages].filter((page) => /\/(blog|news)\//i.test(page)).length;
-    const sitemapLocaleCount = [...sitemapComparablePages].filter((page) => {
-      const url = safeUrl(page, origin);
-      return url ? /^\/[a-z]{2}(-[a-z]{2})?\/?$/i.test(url.pathname) : false;
-    }).length;
 
     const internalLinkCandidates = [...new Set(
       nonFragmentInternalLinks
@@ -2138,6 +2175,8 @@ export async function runAuditJob(auditId: string) {
     const twitterImage = $('meta[name="twitter:image"]').attr("content") ?? "";
 
     const pageSpeed = await getPageSpeedMetrics(audit.targetUrl);
+    const pageSpeedSkipped = !process.env.PAGESPEED_API_KEY || pageSpeed == null || pageSpeed.score == null;
+    const safeBrowsingSkipped = !safeBrowsing.configured;
 
     const checksByKey: Record<string, CheckResult> = {
       "title-tag": {
@@ -2196,7 +2235,7 @@ export async function runAuditJob(auditId: string) {
               : h1Count === 0
                 ? 35
                 : 50,
-        details: `Detected ${h1Count} H1 tags.\nCurrent H1: "${displayValue(h1Text)}".\nTarget keyword(s): ${displayKeywordList}\nAny variant present in H1: ${h1ContainsKeyword}.`,
+        details: `Detected ${h1Count} H1 tags.\nCurrent H1: "${displayValue(h1Text)}".\nTarget keyword(s): ${displayKeywordList}\nSemantic/variant match in H1: ${yesNo(h1ContainsKeyword)}.`,
         recommendation:
           h1Count === 1 && h1ContainsKeyword
             ? "Maintain one clear H1 aligned with title intent."
@@ -2226,20 +2265,13 @@ export async function runAuditJob(auditId: string) {
         recommendation:
           "Use one H1 for the primary topic inside main content, then structure sections with clear H2/H3 hierarchy. Navigation markup before the hero is ignored.",
       },
-      "keyword-usage": {
-        key: "keyword-usage",
-        score: 82,
-        details: `Primary content word count (main/article/body minus chrome): ${wordCount}.\nTarget keyword(s): ${displayKeywordList}\nExact phrase occurrences in that text: ${keywordCount} (${keywordDensity.toFixed(2)}% of words — informational only, not a ranking factor).`,
-        recommendation:
-          "Use these counts for editorial context. Focus on clear headings and helpful copy rather than density targets.",
-      },
       "structured-data": {
         key: "structured-data",
         score: schemaScripts.length === 0 ? 45 : validSchemaCount === schemaScripts.length ? 90 : 30,
         details: `JSON-LD blocks found: ${schemaScripts.length}. Valid blocks: ${validSchemaCount}. Invalid blocks: ${invalidSchemaIndexes.join(", ") || "none"}.`,
         recommendation:
           validSchemaCount === schemaScripts.length
-            ? "Structured data is valid; consider expanding with FAQ and organization data."
+            ? "Structured data is valid; keep JSON-LD aligned with visible content."
             : "Fix invalid JSON-LD syntax to restore rich result eligibility.",
       },
       "schema-coverage": {
@@ -2254,13 +2286,11 @@ export async function runAuditJob(auditId: string) {
               : hasOrganizationSchema || hasWebSiteSchema
                 ? 68
                 : 48,
-        details: `Schema types detected: ${parsedSchemaTypes.join(", ") || "none"}. FAQPage: ${hasFaqSchema}, Organization: ${hasOrganizationSchema}, WebSite: ${hasWebSiteSchema}. Note: FAQ rich results in Google are limited to specific site categories; FAQ JSON-LD is optional semantic markup for others.`,
+        details: `Schema types detected: ${parsedSchemaTypes.join(", ") || "none"}. FAQPage present: ${yesNo(hasFaqSchema)}. Organization: ${yesNo(hasOrganizationSchema)}. WebSite: ${yesNo(hasWebSiteSchema)}.`,
         recommendation:
           hasOrganizationSchema && hasWebSiteSchema
-            ? hasFaqSchema
-              ? "Core entity schema is present. Keep JSON-LD aligned with visible content."
-              : "Organization/WebSite coverage is solid. Add FAQPage JSON-LD only if you want explicit FAQ semantics; it is not required for general SEO."
-            : "Add Organization and WebSite JSON-LD where relevant; add FAQPage only when it mirrors visible FAQ content.",
+            ? "Organization and WebSite schema are present; keep entities synchronized with the live page."
+            : "Add Organization and WebSite JSON-LD where relevant so search engines can resolve brand and site entities.",
       },
       canonical: {
         key: "canonical",
@@ -2342,76 +2372,54 @@ export async function runAuditJob(auditId: string) {
         key: "sitemap",
         score:
           reachableRootSitemaps.length > 0
-            ? sitemapHasHome && submittedPageInSitemap
+            ? submittedPageInSitemap
               ? 92
-              : sitemapHasHome || submittedPageInSitemap
-                ? 68
-                : 45
+              : sitemapStoppedEarly
+                ? 70
+                : sitemapHasHome
+                  ? 72
+                  : 48
             : 20,
         details:
           reachableRootSitemaps.length > 0
-            ? `Sitemap URLs checked: ${formatList(rootSitemapCandidates)}. Reachable sitemap URLs: ${formatList(
+            ? `Seed sitemap URLs: ${formatList(rootSitemapCandidates)}. Reachable: ${formatList(
                 reachableRootSitemapUrls,
-              )}. URLs listed: ${sitemapLocs.length}. Submitted page: ${submittedComparable ?? audit.targetUrl}. Submitted page in sitemap: ${yesNo(
-                submittedPageInSitemap,
-              )}.`
+              )}. Sitemap documents fetched (indexes expanded into child sitemaps): ${sitemapDocsFetched}. Stopped early (cap ${MAX_SITEMAP_DOC_FETCHES}): ${yesNo(
+                sitemapStoppedEarly,
+              )}. Page URLs collected after expansion: ${sitemapLocs.length}. Submitted page: ${
+                submittedComparable ?? audit.targetUrl
+              }. Submitted page found in expanded set: ${yesNo(submittedPageInSitemap)}.`
             : `No reachable sitemap found. Checked: ${formatList(rootSitemapCandidates)}.`,
-        recommendation:
-          "Ensure homepage and the exact submitted URL are listed in sitemap coverage.",
-      },
-      "sitemap-depth": {
-        key: "sitemap-depth",
-        score:
-          reachableRootSitemaps.length === 0
-            ? 25
-            : sitemapBlogArticleCount >= 3
-              ? 88
-              : sitemapBlogArticleCount >= 1
-                ? 68
-                : 45,
-        details: `Total sitemap page URLs: ${sitemapLocs.length}. Sample sitemap URLs: ${formatList(
-          sampleSitemapLocs,
-        )}. Blog/article URLs detected: ${sitemapBlogArticleCount}. Locale root URLs detected: ${sitemapLocaleCount}.`,
-        recommendation:
-          sitemapBlogArticleCount >= 3
-            ? "Sitemap depth is healthy. Keep article URLs fresh and include new content quickly."
-            : "Include deeper content URLs (blog/news/articles) and not just section hubs in sitemap.xml.",
+        recommendation: submittedPageInSitemap
+          ? "Sitemap coverage includes this URL (after expanding sitemap indexes)."
+          : sitemapStoppedEarly
+            ? "Could not confirm URL in sitemap before fetch cap; verify in Search Console or increase sitemap crawl limits."
+            : "Ensure the audited URL appears in your published sitemaps (including nested sitemap files).",
       },
       robots: {
         key: "robots",
-        score:
-          robotsText && robotsDeclaresSitemap && robotsAllowsGoogle && robotsSitemapUrls.length > 0
-            ? 88
-            : robotsText && robotsAllowsGoogle && reachableRootSitemaps.length > 0 && !robotsDeclaresSitemap
-              ? 78
-              : robotsText && robotsAllowsGoogle
-                ? 72
-                : robotsText
-                  ? 55
-                  : 30,
+        score: robotsText && robotsAllowsGoogle ? 88 : robotsText ? 55 : 30,
         details: robotsText
           ? `robots.txt URL: ${origin}/robots.txt. Sitemap line present: ${yesNo(
               robotsDeclaresSitemap,
-            )}. Reachable sitemap.xml on host: ${yesNo(reachableRootSitemaps.length > 0)}. Sitemap URLs in robots: ${formatList(
+            )}. Reachable sitemap on host: ${yesNo(reachableRootSitemaps.length > 0)}. Sitemap URLs in robots: ${formatList(
               robotsSitemapUrls,
-            )}. Googlebot broadly allowed: ${yesNo(robotsAllowsGoogle)}.`
+            )}. Googlebot broadly allowed: ${yesNo(robotsAllowsGoogle)}. Note: declaring sitemaps in robots.txt is optional if you submit them in Search Console.`
           : `robots.txt not detected at ${origin}/robots.txt.`,
         recommendation:
-          reachableRootSitemaps.length > 0 && !robotsDeclaresSitemap
-            ? "Listing sitemaps in robots.txt is optional when sitemaps are submitted in Search Console; add a sitemap line if you want a single crawl hint for all bots."
-            : "Keep crawl directives intentional; avoid blocking important public URLs.",
+          "Keep crawl directives intentional. Add a sitemap line only if you want a universal hint beyond Search Console submissions.",
       },
       "robots-ai-policy": {
         key: "robots-ai-policy",
-        score: !robotsText ? 45 : aiBotBlocked ? 75 : 60,
+        score: 85,
         details: robotsText
-          ? `AI crawler directives present: ${yesNo(aiBotBlocked)}. Matched bots: ${formatList(
+          ? `Informational only — business/legal context matters. AI crawler name fragments seen in file: ${formatList(
               matchedAiBots,
               "none",
-            )}.`
-          : `robots.txt missing at ${origin}/robots.txt, AI crawler policy cannot be verified.`,
+            )} (empty does not imply allow or deny).`
+          : `robots.txt missing at ${origin}/robots.txt; AI crawler rules could not be read.`,
         recommendation:
-          "Define an explicit AI crawler policy in robots.txt based on your content licensing and discoverability goals.",
+          "There is no default “correct” AI crawler stance. Align robots rules with licensing and content strategy.",
       },
       "social-tags": {
         key: "social-tags",
@@ -2483,20 +2491,22 @@ export async function runAuditJob(auditId: string) {
       "render-blocking-resources": {
         key: "render-blocking-resources",
         score:
-          renderBlockingScripts.length === 0 && nonPreloadedStylesheetCount <= 2
-            ? 92
-            : renderBlockingScripts.length <= 1 && nonPreloadedStylesheetCount <= 3
-              ? 82
+          renderBlockingScripts.length === 0
+            ? 90
+            : renderBlockingScripts.length <= 1
+              ? 72
               : renderBlockingScripts.length <= 2
-                ? 62
-                : 42,
-        details: `Head scripts without async/defer/module: ${renderBlockingScripts.length} (${formatList(
+                ? 58
+                : 40,
+        details: `Parser-blocking head scripts (no async/defer/module): ${renderBlockingScripts.length} (${formatList(
           renderBlockingScriptUrls,
           "none",
           4,
-        )}). Stylesheets discovered: ${stylesheetUrls.length}. Stylesheets without preload hint: ${nonPreloadedStylesheetCount}.`,
+        )}). Stylesheets linked: ${stylesheetUrls.length} (preload count is shown for context only — preloading many CSS files is usually harmful; prefer critical CSS / deferral patterns over blanket preload). Stylesheets without link preload: ${nonPreloadedStylesheetCount}.`,
         recommendation:
-          "Move non-critical scripts out of head or add defer/async, and preload only the CSS needed for first paint.",
+          renderBlockingScripts.length > 0
+            ? "Move or defer parser-blocking scripts (async/defer/module) so they do not block HTML parsing."
+            : "For CSS, consider inlining critical CSS and loading non-critical styles with media tricks or deferred bundles — not mass link preload.",
       },
       "asset-caching-compression": {
         key: "asset-caching-compression",
@@ -2510,31 +2520,34 @@ export async function runAuditJob(auditId: string) {
                 : weakCacheAssets.length + uncompressedAssets.length <= 3
                   ? 64
                   : 42,
-        details: `Core assets checked: ${successfulCoreAssetProbes.length}/${coreAssetCandidates.length}. Weak cache-control assets: ${
-          weakCacheAssets.length
-        } (${formatList(weakCacheAssets.map((asset) => asset.url), "none", 3)}). Uncompressed text assets: ${
-          uncompressedAssets.length
-        } (${formatList(uncompressedAssets.map((asset) => asset.url), "none", 3)}).`,
+        details: `Core assets checked: ${successfulCoreAssetProbes.length}/${coreAssetCandidates.length}. Strong cache threshold: max-age≥${CACHE_STRONG_THRESHOLD_SEC}s (1 day) or Cache-Control includes "immutable".
+
+Weak cache-control (below threshold or missing max-age):
+${weakCacheAssets.length ? formatCacheControlEvidence(weakCacheAssets) : "(none)"}
+
+Uncompressed text assets (${uncompressedAssets.length}): ${formatList(uncompressedAssets.map((asset) => asset.url), "none", 3)}.`,
         recommendation:
-          "Set long-lived cache-control on versioned JS/CSS assets and enable Brotli/Gzip compression for text resources.",
+          `Prefer long max-age (often ≥31536000 for hashed/versioned filenames) plus compression for text responses.`,
       },
       "third-party-script-weight": {
         key: "third-party-script-weight",
         score:
-          thirdPartyScriptUrls.length === 0
-            ? 92
-            : thirdPartyScriptUrls.length <= 2 && thirdPartyScriptDomains.length <= 2
-              ? 84
-              : thirdPartyScriptUrls.length <= 5
+          crossOrgScripts.length === 0
+            ? 90
+            : crossOrgScripts.length <= 10 && crossOrgDomains.length <= 5
+              ? 82
+              : crossOrgScripts.length <= 18
                 ? 64
                 : 42,
-        details: `Third-party scripts found: ${thirdPartyScriptUrls.length}. External domains: ${thirdPartyScriptDomains.length} (${formatList(
-          thirdPartyScriptDomains,
-          "none",
-          5,
-        )}).`,
+        details: `Script tags with src: ${thirdPartyScriptUrls.length}. Same org/registrable domain as page (${pageOrg}): ${
+          scriptsByOrg.filter((s) => s.sameOrg).length
+        }. Cross-org scripts (excludes same registrable domain as the page): ${crossOrgScripts.length} across ${
+          crossOrgDomains.length
+        } domain(s): ${formatList(crossOrgDomains, "none", 6)}. Warn thresholds (heuristic): >10 cross-org scripts or >5 cross-org domains.`,
         recommendation:
-          "Limit third-party tags, load them after critical content, and remove vendors that do not create measurable business value.",
+          crossOrgScripts.length > 10
+            ? "Review cross-origin scripts for necessity, load order, and consent; defer or remove low-value vendors."
+            : "Cross-org script load looks moderate; keep third-party tags intentional.",
       },
       "internal-linking": {
         key: "internal-linking",
@@ -2560,13 +2573,6 @@ export async function runAuditJob(auditId: string) {
         } (${formatList(excessiveRedirectInternalLinks.map((item) => item.url), "none", 3)}).`,
         recommendation:
           "Fix broken internal links and update URLs that pass through long redirect chains.",
-      },
-      "site-architecture": {
-        key: "site-architecture",
-        score: internalUniquePaths.size >= 5 ? 84 : internalUniquePaths.size >= 3 ? 66 : 44,
-        details: `Unique internal paths linked from page: ${internalUniquePaths.size}.`,
-        recommendation:
-          "Support core landing page with additional crawlable pages for related intents and long-tail queries.",
       },
       pagespeed: {
         key: "pagespeed",
@@ -2619,12 +2625,20 @@ export async function runAuditJob(auditId: string) {
       },
     };
 
+    const skippedSeoCheckKeys = new Set<string>();
+    if (pageSpeedSkipped) skippedSeoCheckKeys.add("pagespeed");
+    if (safeBrowsingSkipped) skippedSeoCheckKeys.add("safe-browsing");
+
     const effectivePriorityByKey: Record<string, "critical" | "high" | "medium" | "low"> = {
       canonical: "critical",
-      pagespeed: pageSpeed?.score != null ? ((checksByKey.pagespeed?.score ?? 58) >= 60 ? "medium" : "high") : "low",
+      pagespeed: pageSpeedSkipped
+        ? "low"
+        : pageSpeed?.score != null && (checksByKey.pagespeed?.score ?? 0) >= 60
+          ? "medium"
+          : "high",
       "title-tag": "high",
       "h1-count": "high",
-      "safe-browsing": !safeBrowsing.configured ? "low" : safeBrowsing.flagged ? "critical" : "high",
+      "safe-browsing": safeBrowsingSkipped ? "low" : safeBrowsing.flagged ? "critical" : "high",
       "indexability-controls": hasNoindex ? "critical" : "high",
       "http-status-chain": pageProbe.hops >= 3 || pageProbe.usedTemporaryRedirect ? "high" : "medium",
       "render-blocking-resources": renderBlockingScripts.length >= 3 ? "critical" : "high",
@@ -2632,7 +2646,7 @@ export async function runAuditJob(auditId: string) {
         weakCacheAssets.length + uncompressedAssets.length >= 4 ? "high" : "medium",
     };
 
-    const weighted = AUDIT_CHECKLIST.map((item) => {
+    const weighted = AUDIT_CHECKLIST.filter((item) => !skippedSeoCheckKeys.has(item.key)).map((item) => {
       const check = checksByKey[item.key];
       const score = check ? check.score : 50;
       const effectivePriority = effectivePriorityByKey[item.key] ?? item.priority;
@@ -2641,7 +2655,9 @@ export async function runAuditJob(auditId: string) {
 
     const totalWeight = weighted.reduce((acc, entry) => acc + PRIORITY_WEIGHT[entry.effectivePriority], 0);
     const score = clamp(
-      Math.round(weighted.reduce((acc, entry) => acc + entry.weightedScore, 0) / totalWeight),
+      totalWeight === 0
+        ? 75
+        : Math.round(weighted.reduce((acc, entry) => acc + entry.weightedScore, 0) / totalWeight),
       20,
       98,
     );
@@ -2650,14 +2666,16 @@ export async function runAuditJob(auditId: string) {
       const check = checksByKey[item.key];
       const checkScore = check?.score ?? 50;
       const effectivePriority = effectivePriorityByKey[item.key] ?? item.priority;
+      const skipped = skippedSeoCheckKeys.has(item.key);
       return {
         auditId,
         key: item.key,
         title: item.title,
         priority: effectivePriority,
-        status: statusFromCheckScore(checkScore),
+        status: skipped ? "skipped" : statusFromCheckScore(checkScore),
         details: check?.details ?? item.description,
-        recommendation: check?.recommendation ?? "Review this area and apply best-practice fixes.",
+        recommendation:
+          check?.recommendation ?? (skipped ? "Not measured in this run." : "Review this area and apply best-practice fixes."),
       };
     });
 

@@ -41,15 +41,24 @@ function buildPlainWhy(
     return check.recommendation ?? "This item affects conversion performance and should be reviewed.";
   }
 
+  if (check.status === "skipped") {
+    return check.details ?? "This check was not run (integration unavailable or not configured).";
+  }
+
   switch (check.key) {
     case "title-tag":
       return titleMatch
         ? `The title is a strong relevance signal. Current title "${titleMatch[1]}" is evaluated against your target stems/phrases (not only exact-match).`
         : `The title should reflect the target topic so search engines can map the page to that intent.`;
-    case "h1-count":
+    case "h1-count": {
+      const variantYes = /Semantic\/variant match in H1:\s*yes/i.test(details);
+      if (h1Match && variantYes) {
+        return `The H1 "${h1Match[1]}" matches your target topic (semantic / variant match), which supports topical clarity.`;
+      }
       return h1Match
-        ? `The H1 confirms page topic for both users and search engines. Current H1 "${h1Match[1]}" does not include ${keywordPhrase}.`
+        ? `The H1 "${h1Match[1]}" may not align with every exact quoted target phrase; compare against your keyword list in the details below.`
         : `A missing or misaligned H1 weakens topical clarity for the target ${keywordLabel} ${keywordPhrase}.`;
+    }
     case "meta-description":
       return `Your meta description is used as search snippet context. If ${keywordPhrase} ${missingVerb} missing, relevance and click-through can drop for that query.`;
     case "h2-keyword":
@@ -109,17 +118,10 @@ const TOPICS: TopicConfig[] = [
       "h1-count",
       "h2-keyword",
       "heading-hierarchy",
-      "keyword-usage",
       "alt-text",
       "internal-linking",
     ],
     icon: FileText,
-  },
-  {
-    id: "authority",
-    label: "Authority",
-    keys: ["site-architecture"],
-    icon: ShieldCheck,
   },
   {
     id: "technical",
@@ -133,7 +135,6 @@ const TOPICS: TopicConfig[] = [
       "canonical-consistency",
       "hreflang",
       "sitemap",
-      "sitemap-depth",
       "duplicate-metadata",
       "robots",
       "robots-ai-policy",
@@ -204,22 +205,20 @@ function priorityWeight(priority: string) {
   return 3;
 }
 
-function statusWeight(status: string) {
-  if (status === "fail") return 0;
-  if (status === "warn") return 1;
-  return 2;
-}
-
 function suggestionSort(a: CheckItem, b: CheckItem) {
-  const aPass = a.status === "pass";
-  const bPass = b.status === "pass";
-  if (aPass !== bPass) {
-    return aPass ? 1 : -1;
-  }
+  const rank = (status: string) => {
+    if (status === "fail") return 0;
+    if (status === "warn") return 1;
+    if (status === "skipped") return 2;
+    if (status === "pass") return 3;
+    return 4;
+  };
+  const statusDiff = rank(a.status) - rank(b.status);
+  if (statusDiff !== 0) return statusDiff;
 
   const priorityDiff = priorityWeight(a.priority) - priorityWeight(b.priority);
   if (priorityDiff !== 0) return priorityDiff;
-  return statusWeight(a.status) - statusWeight(b.status);
+  return 0;
 }
 
 function priorityPill(priority: string) {
@@ -232,10 +231,11 @@ function priorityPill(priority: string) {
 function statusPill(status: string) {
   if (status === "fail") return "bg-rose-50 text-rose-700";
   if (status === "warn") return "bg-amber-100 text-amber-800";
+  if (status === "skipped") return "bg-slate-100 text-slate-700";
   return "bg-emerald-50 text-emerald-700";
 }
 
-function sectionStyle(section: "critical" | "high" | "medium" | "low" | "pass") {
+function sectionStyle(section: "critical" | "high" | "medium" | "low" | "skipped" | "pass") {
   if (section === "critical") {
     return {
       wrapper: "",
@@ -269,6 +269,13 @@ function sectionStyle(section: "critical" | "high" | "medium" | "low" | "pass") 
       wrapper: "",
       title: "font-manrope text-base font-extrabold text-emerald-700",
       item: "rounded-lg border border-emerald-200 bg-white px-3 py-2",
+    };
+  }
+  if (section === "skipped") {
+    return {
+      wrapper: "",
+      title: "font-manrope text-base font-extrabold text-slate-600",
+      item: "rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2",
     };
   }
   return {
@@ -328,14 +335,23 @@ export function AuditTopicPanel({
   const topicSet = auditType === "cro" ? CRO_TOPICS : TOPICS;
   const currentTopic = topicSet.find((topic) => topic.id === activeTopic) ?? topicSet[0];
   const currentChecks = checksByTopic[currentTopic.id] ?? [];
-  const criticalItems = currentChecks.filter((check) => check.priority === "critical" && check.status !== "pass");
-  const highItems = currentChecks.filter((check) => check.priority === "high" && check.status !== "pass");
-  const mediumItems = currentChecks.filter((check) => check.priority === "medium" && check.status !== "pass");
-  const lowItems = currentChecks.filter((check) => check.priority === "low" && check.status !== "pass");
+  const criticalItems = currentChecks.filter(
+    (check) => check.priority === "critical" && check.status !== "pass" && check.status !== "skipped",
+  );
+  const highItems = currentChecks.filter(
+    (check) => check.priority === "high" && check.status !== "pass" && check.status !== "skipped",
+  );
+  const mediumItems = currentChecks.filter(
+    (check) => check.priority === "medium" && check.status !== "pass" && check.status !== "skipped",
+  );
+  const lowItems = currentChecks.filter(
+    (check) => check.priority === "low" && check.status !== "pass" && check.status !== "skipped",
+  );
+  const skippedItems = currentChecks.filter((check) => check.status === "skipped");
   const passItems = currentChecks.filter((check) => check.status === "pass");
 
   const sections: Array<{
-    id: "critical" | "high" | "medium" | "low" | "pass";
+    id: "critical" | "high" | "medium" | "low" | "skipped" | "pass";
     title: string;
     items: CheckItem[];
   }> = [
@@ -343,6 +359,7 @@ export function AuditTopicPanel({
     { id: "high", title: "High Impact (Action Required Soon)", items: highItems },
     { id: "medium", title: "Medium Impact (Address When Possible)", items: mediumItems },
     { id: "low", title: "Low Impact (Fix Later)", items: lowItems },
+    { id: "skipped", title: "Not Measured (Integration)", items: skippedItems },
     { id: "pass", title: "Passed Items (No Action Needed)", items: passItems },
   ];
   const visibleSections = sections.filter((section) => section.items.length > 0);
@@ -386,7 +403,9 @@ export function AuditTopicPanel({
                     {sortedItems.map((item) => (
                       <li
                         key={item.id}
-                        className={`${style.item} ${item.status === "pass" ? "bg-emerald-50/40" : ""}`}
+                        className={`${style.item} ${
+                          item.status === "pass" ? "bg-emerald-50/40" : item.status === "skipped" ? "bg-slate-50/90" : ""
+                        }`}
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <span
@@ -402,7 +421,9 @@ export function AuditTopicPanel({
                         </div>
                         <p className="mt-2 text-sm font-semibold">{item.title}</p>
                         <p className="mt-1 text-sm text-[var(--on-surface)]/74">
-                          <span className="font-semibold">{item.status === "pass" ? "Recommendation:" : "Fix:"}</span>{" "}
+                          <span className="font-semibold">
+                            {item.status === "pass" ? "Recommendation:" : item.status === "skipped" ? "Note:" : "Fix:"}
+                          </span>{" "}
                           {item.recommendation ?? "No recommendation provided."}
                         </p>
                         <p className="mt-1 text-sm text-[var(--on-surface)]/70">
