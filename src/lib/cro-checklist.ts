@@ -2,12 +2,6 @@ import type { ChecklistTemplate } from "@/lib/seo-checklist";
 
 export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
   {
-    key: "entry-experience",
-    title: "First Impression and Entry Experience",
-    priority: "critical",
-    description: "Popup timing, overlay friction, and immediate clarity in first seconds.",
-  },
-  {
     key: "hero-clarity",
     title: "Hero and Above-the-Fold Clarity",
     priority: "critical",
@@ -24,18 +18,6 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     title: "CTA Microcopy Reassurance",
     priority: "high",
     description: "Checks for no-risk reassurance text near hero CTA (trial, no card, cancel anytime).",
-  },
-  {
-    key: "hero-ai-prompt",
-    title: "AI Discovery Prompt Presence",
-    priority: "medium",
-    description: "Checks if uncertainty-reducing AI assistant prompt appears early above the fold.",
-  },
-  {
-    key: "value-proposition",
-    title: "Value Proposition and Messaging",
-    priority: "high",
-    description: "Benefit-led copy, USP clarity, and objection handling in messaging.",
   },
   {
     key: "quantified-outcomes",
@@ -56,34 +38,10 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Checks whether multi-tier pricing is easy to compare (table/matrix style signals).",
   },
   {
-    key: "click-distance",
-    title: "Click Distance to Purchase",
-    priority: "high",
-    description: "Measures how quickly users can reach pricing/checkout from landing.",
-  },
-  {
-    key: "social-proof",
-    title: "Social Proof and Trust Signals",
-    priority: "critical",
-    description: "Testimonials, ratings, customer counts, and credibility cues.",
-  },
-  {
     key: "language-consistency",
     title: "Language Consistency",
     priority: "critical",
     description: "Detects mixed-language content that can break trust and comprehension.",
-  },
-  {
-    key: "funnel-friction",
-    title: "Funnel Friction Points",
-    priority: "critical",
-    description: "Checkout path obstacles, form friction, and conversion blockers.",
-  },
-  {
-    key: "feature-cta-clarity",
-    title: "Feature CTA Clarity",
-    priority: "high",
-    description: "Flags generic feature CTAs like repeated 'Read more' without action intent.",
   },
   {
     key: "technical-health",
@@ -93,9 +51,9 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
   },
   {
     key: "support-objections",
-    title: "Support and Objection Handling",
+    title: "Support and Contact Paths",
     priority: "medium",
-    description: "Visible support channels plus FAQ-style objection handling content.",
+    description: "Visible support and contact paths (help center, chat, contact).",
   },
   {
     key: "faq-depth",
