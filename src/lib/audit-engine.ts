@@ -327,45 +327,8 @@ function collectMatches(text: string, pattern: RegExp, limit = 6) {
   return [...matches];
 }
 
-function collectSentenceMatches(text: string, pattern: RegExp, limit = 6) {
-  if (!text) return [];
-  const source = pattern.source;
-  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
-  const regex = new RegExp(source, flags);
-  const snippets = new Set<string>();
-  let current = regex.exec(text);
-
-  while (current) {
-    const matchStart = current.index;
-    const matchEnd = matchStart + (current[0]?.length ?? 0);
-    const before = text.lastIndexOf(".", Math.max(matchStart - 1, 0));
-    const afterCandidates = [text.indexOf(".", matchEnd), text.indexOf(";", matchEnd), text.indexOf("\n", matchEnd)].filter(
-      (value) => value >= 0,
-    );
-    const after = afterCandidates.length > 0 ? Math.min(...afterCandidates) : -1;
-    const start = before >= 0 ? before + 1 : Math.max(matchStart - 40, 0);
-    const end = after >= 0 ? after : Math.min(text.length, matchEnd + 120);
-    const snippet = text
-      .slice(start, end)
-      .replace(/\s+/g, " ")
-      .trim();
-    if (snippet) snippets.add(truncateWithEllipsis(snippet, 160));
-    if (snippets.size >= limit) break;
-    current = regex.exec(text);
-  }
-
-  return [...snippets];
-}
-
 function yesNo(value: boolean) {
   return value ? "yes" : "no";
-}
-
-const RISK_REVERSAL_REGEX =
-  /no credit card required|no credit card|cancel anytime|cancel any time|cancel whenever|free trial|try for free|try free|\b\d+[- ]?day(?:\s+free)?\s+trial\b|free for \d+ days|money[- ]back(?: guarantee)?|no commitment|no contract|no obligation|month[- ]to[- ]month|try free for|two[- ]weeks?/gi;
-
-function collectRiskReversalMatches(text: string, limit = 8) {
-  return collectMatches(text, RISK_REVERSAL_REGEX, limit);
 }
 
 function looksLikeFaqQuestionText(text: string) {
@@ -373,58 +336,6 @@ function looksLikeFaqQuestionText(text: string) {
   if (t.length < 8 || t.length > 280) return false;
   if (/^(menu|close|open|next|previous|back|show more|see more|expand|collapse)\b/i.test(t)) return false;
   return /\?\s*$/.test(t) || /^(what|how|why|when|where|which|who|can|do|does|did|is|are|will|should|could|would)\b/i.test(t);
-}
-
-function tokenWindowAroundMatch(fullText: string, matchStart: number, matchEnd: number, beforeTokens: number, afterTokens: number) {
-  const beforeSlice = fullText.slice(0, matchStart);
-  const afterSlice = fullText.slice(matchEnd);
-  const before = beforeSlice.split(/\s+/).filter(Boolean).slice(-beforeTokens);
-  const after = afterSlice.split(/\s+/).filter(Boolean).slice(0, afterTokens);
-  const matched = fullText.slice(matchStart, matchEnd).replace(/\s+/g, " ").trim();
-  return [...before, matched, ...after].join(" ").replace(/\s+/g, " ").trim();
-}
-
-function collectNumericMetricSnippets(text: string, limit = 5) {
-  if (!text) return [];
-  const pattern = /\b\+?\d+(?:\.\d+)?\s?%/gi;
-  const out: string[] = [];
-  const seen = new Set<string>();
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
-    const start = match.index ?? 0;
-    const end = start + (match[0]?.length ?? 0);
-    const snippet = truncateWithEllipsis(tokenWindowAroundMatch(text, start, end, 6, 6), 120);
-    const dedupeKey = `${(match[0] ?? "").toLowerCase()}|${snippet.slice(0, 48).toLowerCase()}`;
-    if (!snippet || seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-    out.push(snippet);
-    if (out.length >= limit) break;
-  }
-  return out;
-}
-
-/** Short clauses around each % so one nav sentence does not count as three duplicate "cues". */
-function extractPercentStatClauses(text: string, limit = 6) {
-  if (!text) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const re = /\d+(?:\.\d+)?\s*%/gi;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(text)) !== null && out.length < limit) {
-    const start = match.index ?? 0;
-    const tail = text.slice(start);
-    const comma = tail.search(/,\s*(?=[A-Za-z])/);
-    const stop = comma > 0 ? comma : Math.min(tail.length, 90);
-    let clause = tail.slice(0, stop).replace(/\s+/g, " ").trim();
-    clause = truncateWithEllipsis(clause, 88);
-    if (clause.length < 6) continue;
-    if (!/\d+(?:\.\d+)?\s*%/.test(clause)) continue;
-    const key = clause.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(clause);
-  }
-  return out;
 }
 
 function hasGlobalFaqHeading($: ReturnType<typeof load>) {
@@ -860,18 +771,8 @@ function formatCroReport(
 
 async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targetUrl: string) {
   const h1Node = $("h1").first();
-  const h1Text = h1Node.text().trim();
   const actionCtaRegex =
     /(get started|get a demo|buy|order|start|sign up|subscribe|shop|audit|checkout|book|trial|start for free|talk to sales|contact sales|speak to sales|talk with sales|get insights|view plans?)/i;
-  const hasButtonLikeStyle = (el: AnyNode) => {
-    const className = ($(el).attr("class") ?? "").toLowerCase();
-    const style = ($(el).attr("style") ?? "").toLowerCase();
-    const role = ($(el).attr("role") ?? "").toLowerCase();
-    if (/(btn|button|cta|primary|action|bg-)/i.test(className)) return true;
-    if (role === "button") return true;
-    if (/background(?:-color)?\s*:\s*(?!transparent|inherit)/i.test(style)) return true;
-    return false;
-  };
   const getInteractiveText = (el: AnyNode) => {
     const clone = $(el).clone();
     clone.find(".sr-only, .visually-hidden, [aria-hidden='true']").remove();
@@ -925,20 +826,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
   const ctaInHero = uniqueHeroCtas.length > 0;
   const heroCtaCount = heroCtas.length;
   const heroCtaChoiceOverload = uniqueHeroCtas.length > 2;
-  const allH1Texts = $("h1")
-    .toArray()
-    .map((el) => $(el).text().replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  const multipleCompetingH1 = allH1Texts.length > 1;
-  const eyebrowBannerHeadline =
-    preHeroSections.length > 0
-      ? $(preHeroSections[0])
-          .find("h2,h3,h4")
-          .first()
-          .text()
-          .replace(/\s+/g, " ")
-          .trim()
-      : "";
   const heroTextSource = h1PrimaryContainer.length > 0 ? h1PrimaryContainer : h1FallbackContainer;
   const heroText = (heroTextSource.length > 0 ? heroTextSource.text() : $("body").text()).replace(/\s+/g, " ").trim();
   const sectionNodes = $("section").toArray();
@@ -1106,39 +993,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
   const viewCountSignals = (bodyText.match(/\b\d+(?:[.,]\d+)?\s?(?:k|m|b)?\s?(?:views?|watches?)\b/gi) ?? []).length;
   const hasProductImageDensity = $("img").length >= 8;
   const hasLiveProductProof = hasLiveTrendLanguage && (viewCountSignals >= 2 || hasProductImageDensity);
-  const quantifiedPercentageMatches = collectMatches(bodyText, /\b\+?\d+(?:\.\d+)?\s?%/gi, 80);
-  const quantifiedSentenceMatches = collectSentenceMatches(bodyText, /\b\+?\d+(?:\.\d+)?\s?%/gi, 20);
-  const quantifiedStatClauses = extractPercentStatClauses(bodyText, 6);
-  const quantifiedDisplaySnippets =
-    quantifiedStatClauses.length > 0 ? quantifiedStatClauses : collectNumericMetricSnippets(bodyText, 5);
-  const quantifiedScaleMatches = collectMatches(bodyText, /\b\d+(?:\.\d+)?\s?[KMBT]\+?\b/gi, 80);
-  const quantifiedMultiplierMatches = collectMatches(bodyText, /\b\d+x\b/gi, 80);
-  const quantifiedEntityMatches = collectMatches(
-    bodyText,
-    /\b\d{2,}\+?\s+(years|customers|users|brands|teams|integrations|countries|languages)\b/gi,
-    80,
-  );
-  const headingDescriptorMatches = $("strong,h2,h3")
-    .toArray()
-    .map((el) => {
-      const metricText = $(el).text().replace(/\s+/g, " ").trim();
-      if (!/\d/.test(metricText)) return "";
-      const siblingText = ($(el).next().text() || "").replace(/\s+/g, " ").trim();
-      const siblingWordCount = siblingText.split(/\s+/).filter(Boolean).length;
-      if (!siblingText || siblingWordCount > 4) return "";
-      return `${metricText} ${siblingText}`;
-    })
-    .filter(Boolean)
-    .slice(0, 80);
-  const quantifiedOutcomeMatches = [
-    ...quantifiedPercentageMatches,
-    ...quantifiedScaleMatches,
-    ...quantifiedMultiplierMatches,
-    ...quantifiedEntityMatches,
-    ...headingDescriptorMatches,
-  ];
-  const quantifiedOutcomeCount = new Set(quantifiedOutcomeMatches.map((item) => item.toLowerCase())).size;
-  const quantifiedMetricClauseCount = quantifiedStatClauses.length;
   const origin = safeUrl(targetUrl, targetUrl)?.origin ?? "";
   const pricingPathCandidates = ["/pricing", "/plans", "/prices"];
   const pricingPageScans = await Promise.all(
@@ -1310,74 +1164,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
     .flatMap((el) => $(el).find("a[href]").toArray())
     .map((el) => $(el).attr("href") ?? "")
     .filter((href) => /trustpilot|g2|capterra|getapp|producthunt|google/i.test(href)).length;
-  const footerNode = $("footer, [role='contentinfo']").first();
-  const excludedFooterLinkRegex =
-    /user group|community|blog|about|careers|contact|privacy|terms|accessibility|sitemap|facebook|instagram|linkedin|youtube|twitter|x\.com|cookie|legal|investor|partner/i;
-  const footerActionRegex =
-    /\b(get|start|try|buy|book|request|download|contact|schedule|sign up|subscribe|learn|demo|free trial|log in|login)\b/i;
-  const footerIntentHrefRegex = /\/(demo|trial|signup|sign-up|pricing|checkout|get-started|book|login|log-in)/i;
-  const preFooterSections =
-    footerNode.length > 0 ? (footerNode.prevAll("section").slice(0, 4).toArray() as AnyNode[]) : [];
-  const preFooterAdjacentClassBlocks =
-    footerNode.length > 0
-      ? footerNode
-          .prevAll("section,div,article")
-          .slice(0, 4)
-          .toArray()
-          .filter((el) => /cta|callout|banner/i.test($(el).attr("class") ?? ""))
-      : [];
-  const tailSectionNodes = sectionNodes.slice(-4) as AnyNode[];
-  const footerZoneNodes = [
-    ...new Set<AnyNode>([
-      ...(footerNode.length > 0 ? [footerNode.get(0) as AnyNode] : []),
-      ...preFooterSections,
-      ...preFooterAdjacentClassBlocks,
-      ...tailSectionNodes,
-    ]),
-  ];
-  const footerScopeText = footerZoneNodes
-    .map((region) => $(region).text().replace(/\s+/g, " ").trim())
-    .join(" ");
-  const footerCandidates = footerZoneNodes.flatMap((region) =>
-    $(region)
-      .find("a,button,[role='button'],input[type='submit'],input[type='button']")
-      .toArray(),
-  );
-  const isFooterNavColumnLink = (el: AnyNode) => {
-    const node = $(el);
-    const foot = node.closest("footer");
-    if (!foot.length) return false;
-    if (node.closest("footer nav, footer [role='navigation'], footer [class*='footer-menu'], footer [class*='Footer']").length)
-      return true;
-    const ul = node.closest("ul");
-    return ul.length > 0 && ul.find("a").length >= 8;
-  };
-  const footerCtaSampleSet = new Set<string>();
-  let footerCtaHasRiskInLabel = false;
-  footerCandidates.forEach((el) => {
-    const text = getInteractiveText(el);
-    if (!text || text.length < 2 || text.length > 96) return;
-    if (/^see all\b/i.test(text)) return;
-    if (/\b(hubspot for startups|free business tools|user group)\b/i.test(text) && !hasButtonLikeStyle(el)) return;
-    if (excludedFooterLinkRegex.test(text)) return;
-    const href = ($(el).attr("href") ?? $(el).attr("formaction") ?? "").toLowerCase();
-    const strongHref = footerIntentHrefRegex.test(href);
-    const strongText = footerActionRegex.test(text) || actionCtaRegex.test(text);
-    if (!(strongText || strongHref)) return;
-    const tag = (el.tagName ?? "").toLowerCase();
-    if (isFooterNavColumnLink(el) && tag === "a" && !hasButtonLikeStyle(el) && !strongHref) return;
-    if (!(hasButtonLikeStyle(el) || strongHref || tag === "button" || tag === "input" || $(el).attr("role") === "button"))
-      return;
-    if (collectRiskReversalMatches(text, 3).length > 0) footerCtaHasRiskInLabel = true;
-    footerCtaSampleSet.add(formatDisplayLabel(text));
-  });
-  const footerCtaTexts = [...footerCtaSampleSet];
-  const combinedLateFunnelText = `${heroText} ${footerScopeText}`.replace(/\s+/g, " ").trim();
-  const combinedRiskMatches = collectRiskReversalMatches(combinedLateFunnelText, 10);
-  const footerHasContextLine =
-    combinedRiskMatches.length > 0 ||
-    footerCtaHasRiskInLabel ||
-    /(setup in|minutes|risk-free|no commitment|money[- ]back)/i.test(combinedLateFunnelText);
   const hasSecurityComplianceBadge = /(aicpa|soc\s?2?|iso\s?27001|gdpr|compliance|security certified)/i.test(
     footerText,
   );
@@ -1397,13 +1183,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
   const faqDepthStatus: "pass" | "fail" =
     faqQuestionCount >= 1 || schemaFaqCount >= 1 || hasFaqSectionHeading ? "pass" : "fail";
   const checksByKey: Record<string, CheckResult> = {
-    "hero-clarity": {
-      key: "hero-clarity",
-      score: h1Text.length >= 10 && ctaInHero ? 88 : h1Text.length >= 10 ? 56 : 28,
-      details: `Primary H1 (document order): "${displayValue(h1Text)}".${multipleCompetingH1 ? ` Additional H1 elements: ${formatList(allH1Texts.slice(1), "none", 3)} (multiple competing hero messages — review banner vs product headline hierarchy).` : ""}${eyebrowBannerHeadline ? ` Preceding banner/eyebrow heading: "${displayValue(eyebrowBannerHeadline)}".` : ""} Hero CTA detected: ${yesNo(ctaInHero)}. Hero CTA samples: ${formatList(heroCtaDisplaySamples, "none", 5)}.`,
-      recommendation:
-        "Critical: ensure headline clearly explains what the product is and keep a strong primary CTA visible above the fold.",
-    },
     "hero-dual-cta": {
       key: "hero-dual-cta",
       score: hasDualHeroCta ? 86 : ctaInHero ? 58 : 34,
@@ -1424,36 +1203,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
         hasProblemFraming
           ? "Problem framing is present. Keep connecting pain points to specific outcomes."
           : "Add a clear pain-point section early (before deep feature details) to frame urgency and relevance.",
-    },
-    "quantified-outcomes": {
-      key: "quantified-outcomes",
-      score:
-        quantifiedMetricClauseCount >= 2 && customerProofMatches.length > 0
-          ? 86
-          : quantifiedMetricClauseCount > 0 || quantifiedOutcomeCount > 0
-            ? 68
-            : 38,
-      status:
-        quantifiedMetricClauseCount >= 2 && customerProofMatches.length > 0
-          ? "pass"
-          : quantifiedMetricClauseCount > 0 || quantifiedOutcomeCount > 0
-            ? "warn"
-            : "fail",
-      details: `Distinct %-stat clauses extracted: ${quantifiedMetricClauseCount}. (Broader numeric cue count, deduped: ${quantifiedOutcomeCount}.) Display samples: ${formatList(
-        quantifiedDisplaySnippets.length > 0
-          ? quantifiedDisplaySnippets
-          : quantifiedSentenceMatches.length > 0
-            ? quantifiedSentenceMatches
-            : quantifiedOutcomeMatches.slice(0, 8),
-        "none",
-        5,
-      )}. Customer/volume cues: ${formatList(customerProofMatches, "none", 5)}.`,
-      recommendation:
-        quantifiedMetricClauseCount >= 2 && customerProofMatches.length > 0
-          ? "Keep quantified outcomes and customer-volume proof close to hero and primary CTA areas."
-          : quantifiedMetricClauseCount > 0 || quantifiedOutcomeCount > 0
-            ? `Add customer-volume proof near the hero; keep each stat as one clear clause (avoid counting one sentence as many duplicate cues).`
-            : "Add quantified outcomes (percentages, multipliers, or totals) and at least one customer-volume proof stat.",
     },
     "before-after-comparison": {
       key: "before-after-comparison",
@@ -1607,24 +1356,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
         hasAnalytics
           ? "Keep conversion events instrumented (view, CTA click, checkout start, purchase) and monitor regularly."
           : "Install analytics and conversion event tracking before scaling CRO tests.",
-    },
-    "footer-cta-clarity": {
-      key: "footer-cta-clarity",
-      score: footerCtaTexts.length === 0 ? 42 : footerHasContextLine ? 84 : 66,
-      status: footerCtaTexts.length === 0 ? "fail" : footerHasContextLine ? "pass" : "warn",
-      details: `Footer-zone CTA count (footer plus last page sections / pre-footer bands): ${footerCtaTexts.length}. Risk-reversal (hero + footer zone, or inside CTA labels): ${yesNo(
-        footerHasContextLine,
-      )}. Matched reassurance phrases: ${formatList(combinedRiskMatches, "none", 5)}. Footer-zone CTA samples: ${formatList(
-        footerCtaTexts,
-        "none",
-        4,
-      )}.`,
-      recommendation:
-        footerCtaTexts.length === 0
-          ? "Add at least one legitimate conversion CTA in the footer or pre-footer band."
-          : footerHasContextLine
-          ? "Footer CTA context is clear. Keep friction-reducing microcopy close to signup action."
-          : "Add short risk-reversal microcopy near footer/pre-footer CTAs (no card, trial terms, cancel anytime).",
     },
     "security-compliance-badge": {
       key: "security-compliance-badge",

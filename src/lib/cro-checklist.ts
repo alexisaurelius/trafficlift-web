@@ -2,22 +2,10 @@ import type { ChecklistTemplate } from "@/lib/seo-checklist";
 
 export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
   {
-    key: "hero-clarity",
-    title: "Hero and Above-the-Fold Clarity",
-    priority: "critical",
-    description: "Visible headline, clear value proposition, and primary CTA above the fold.",
-  },
-  {
     key: "hero-dual-cta",
     title: "Hero CTA Strategy Coverage",
     priority: "high",
     description: "Checks for complementary primary and secondary CTAs in the hero.",
-  },
-  {
-    key: "quantified-outcomes",
-    title: "Quantified Outcomes Evidence",
-    priority: "high",
-    description: "Checks for concrete performance metrics (percentages, multipliers, timelines).",
   },
   {
     key: "pricing-comparison-clarity",
@@ -48,11 +36,5 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     title: "Analytics and Tracking Foundation",
     priority: "high",
     description: "Core analytics, tag manager, and conversion event instrumentation.",
-  },
-  {
-    key: "footer-cta-clarity",
-    title: "Footer CTA Clarity",
-    priority: "medium",
-    description: "Conversion-style CTAs in the footer zone plus risk-reversal (including hero + CTA label text).",
   },
 ];

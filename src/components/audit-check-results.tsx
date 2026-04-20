@@ -17,11 +17,8 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "keyword-usage",
     "alt-text",
     "internal-linking",
-    "hero-clarity",
     "hero-dual-cta",
-    "quantified-outcomes",
     "pricing-comparison-clarity",
-    "footer-cta-clarity",
   ],
   Technical: [
     "structured-data",
