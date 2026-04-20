@@ -362,7 +362,7 @@ function yesNo(value: boolean) {
 }
 
 const RISK_REVERSAL_REGEX =
-  /no credit card required|no credit card|cancel anytime|cancel any time|cancel whenever|free trial|try for free|try free|\b\d+[- ]?day(?:\s+free)?\s+trial\b|free for \d+ days|money[- ]back(?: guarantee)?|no commitment|no contract/gi;
+  /no credit card required|no credit card|cancel anytime|cancel any time|cancel whenever|free trial|try for free|try free|\b\d+[- ]?day(?:\s+free)?\s+trial\b|free for \d+ days|money[- ]back(?: guarantee)?|no commitment|no contract|no obligation|month[- ]to[- ]month|try free for|two[- ]weeks?/gi;
 
 function collectRiskReversalMatches(text: string, limit = 8) {
   return collectMatches(text, RISK_REVERSAL_REGEX, limit);
@@ -403,9 +403,44 @@ function collectNumericMetricSnippets(text: string, limit = 5) {
   return out;
 }
 
+/** Short clauses around each % so one nav sentence does not count as three duplicate "cues". */
+function extractPercentStatClauses(text: string, limit = 6) {
+  if (!text) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const re = /\d+(?:\.\d+)?\s*%/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null && out.length < limit) {
+    const start = match.index ?? 0;
+    const tail = text.slice(start);
+    const comma = tail.search(/,\s*(?=[A-Za-z])/);
+    const stop = comma > 0 ? comma : Math.min(tail.length, 90);
+    let clause = tail.slice(0, stop).replace(/\s+/g, " ").trim();
+    clause = truncateWithEllipsis(clause, 88);
+    if (clause.length < 6) continue;
+    if (!/\d+(?:\.\d+)?\s*%/.test(clause)) continue;
+    const key = clause.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clause);
+  }
+  return out;
+}
+
+function hasGlobalFaqHeading($: ReturnType<typeof load>) {
+  return $("h1,h2,h3,h4,h5,h6")
+    .toArray()
+    .some((el) => {
+      if ($(el).closest("nav,[role='navigation']").length > 0) return false;
+      const t = $(el).text().replace(/\s+/g, " ").trim();
+      return /\b(frequently asked questions?|faqs?)\b/i.test(t);
+    });
+}
+
 type CroFaqInsights = {
   questionSet: Set<string>;
   regionHeadingSamples: string[];
+  hasFaqSectionHeading: boolean;
 };
 
 function extractCroFaqInsights($: ReturnType<typeof load>): CroFaqInsights {
@@ -437,6 +472,15 @@ function extractCroFaqInsights($: ReturnType<typeof load>): CroFaqInsights {
     .toArray()
     .forEach((el) => pushRegion(el));
 
+  $("[data-faq], [class*='faq__question'], [class*='faq-question'], [class*='FaqItem'], [class*='accordion-faq']")
+    .toArray()
+    .forEach((el) => {
+      if ($(el).closest("nav,[role='navigation']").length > 0) return;
+      const host = $(el).closest("section,article,div");
+      if (host.length > 0) pushRegion(host.get(0) as AnyNode);
+      else pushRegion(el as AnyNode);
+    });
+
   $("section,article,div")
     .toArray()
     .forEach((el) => {
@@ -459,12 +503,15 @@ function extractCroFaqInsights($: ReturnType<typeof load>): CroFaqInsights {
   const scanQuestionsInside = (region: AnyNode) => {
     const scope = $(region);
     scope
-      .find("details > summary, button, [role='button'], h3, h4, h5")
+      .find(
+        "details > summary, button[aria-expanded], button, [role='button'], [data-faq], .faq__question, h2, h3, h4, h5, h6",
+      )
       .toArray()
       .forEach((el) => {
         const clone = $(el).clone();
         clone.find(".sr-only, .visually-hidden, [aria-hidden='true']").remove();
         const text = clone.text().replace(/\s+/g, " ").trim();
+        if (/^(frequently asked questions?|faqs?)\s*$/i.test(text)) return;
         addQuestion(text);
       });
   };
@@ -500,7 +547,8 @@ function extractCroFaqInsights($: ReturnType<typeof load>): CroFaqInsights {
   }
 
   const uniqueHeadings = [...new Set(regionHeadingSamples)].slice(0, 4);
-  return { questionSet, regionHeadingSamples: uniqueHeadings };
+  const hasFaqSectionHeading = uniqueHeadings.length > 0 || hasGlobalFaqHeading($);
+  return { questionSet, regionHeadingSamples: uniqueHeadings, hasFaqSectionHeading };
 }
 
 function enforceRecommendationTone(
@@ -814,10 +862,7 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
   const h1Node = $("h1").first();
   const h1Text = h1Node.text().trim();
   const actionCtaRegex =
-    /(get started|get a demo|buy|order|start|sign up|subscribe|shop|audit|checkout|book|trial|start for free|talk to sales|get insights|view plans?)/i;
-  const utilityCtaRegex =
-    /^(pricing|resources|blog|ebooks|guides|playbook|about|careers|contact|login|sign in|support|help)$/i;
-  const intentHrefRegex = /\/(demo|trial|signup|sign-up|pricing|checkout|get-started|book|register)/i;
+    /(get started|get a demo|buy|order|start|sign up|subscribe|shop|audit|checkout|book|trial|start for free|talk to sales|contact sales|speak to sales|talk with sales|get insights|view plans?)/i;
   const hasButtonLikeStyle = (el: AnyNode) => {
     const className = ($(el).attr("class") ?? "").toLowerCase();
     const style = ($(el).attr("style") ?? "").toLowerCase();
@@ -836,39 +881,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
     return visibleText || value || ariaLabel;
   };
   const formatDisplayLabel = (value: string) => toTitleCaseDisplay(truncateWithEllipsis(displayValue(value), 40));
-  const isLikelyCta = (el: AnyNode) => {
-    const text = getInteractiveText(el);
-    if (!text || text.length < 2 || text.length > 40) return false;
-    if (utilityCtaRegex.test(text)) return false;
-    const container = $(el).closest("nav, [role='navigation'], header nav, footer ul");
-    if (container.length > 0) return false;
-    const href = ($(el).attr("href") ?? $(el).attr("formaction") ?? "").toLowerCase();
-    return hasButtonLikeStyle(el) || intentHrefRegex.test(href);
-  };
-  const ctaElements = $("a,button,[role='button'],input[type='submit'],input[type='button']")
-    .toArray()
-    .filter((el) => $(el).closest("footer").length === 0)
-    .filter((el) => {
-      const text = getInteractiveText(el);
-      if (!text || text.length > 48 || utilityCtaRegex.test(text)) return false;
-      return actionCtaRegex.test(text) && isLikelyCta(el);
-    });
-  const ctaButtons = ctaElements
-    .map((el) => getInteractiveText(el))
-    .filter(Boolean);
-  const ctaButtonSampleMap = new Map<string, string>();
-  ctaButtons.forEach((text) => {
-    const key = text.toLowerCase();
-    if (!ctaButtonSampleMap.has(key)) ctaButtonSampleMap.set(key, text);
-  });
-  const ctaButtonSamples = [...ctaButtonSampleMap.values()].slice(0, 8);
-  const ctaActionVerbMatch = ctaButtonSamples.some((sample) => actionCtaRegex.test(sample));
-  const genericCtaRegex = /^(learn more|click here|read more)$/i;
-  const allCtasGeneric = ctaButtonSamples.length > 0 && ctaButtonSamples.every((sample) => genericCtaRegex.test(sample));
-  const buttonLikeCtaCount = ctaElements.filter((el) => {
-    const tagName = (el.tagName ?? "").toLowerCase();
-    return tagName === "button" || tagName === "input" || hasButtonLikeStyle(el);
-  }).length;
   const h1PrimaryContainer = h1Node.closest("section,article,div,header");
   const h1FallbackContainer = h1Node.closest("div");
   const collectScopeCtas = (scope: Cheerio<AnyNode>) =>
@@ -880,7 +892,27 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
   const firstHeroLikeSection = $("section,article,div")
     .toArray()
     .find((el) => /h1|hero|show up|be found/i.test($(el).text()));
-  let heroCtas = collectScopeCtas(h1PrimaryContainer);
+  const h1Section = h1Node.closest("section");
+  const preHeroSections: AnyNode[] = [];
+  if (h1Section.length > 0) {
+    let walk = h1Section.prev("section");
+    let steps = 0;
+    while (walk.length > 0 && steps < 2) {
+      preHeroSections.unshift(walk.get(0) as AnyNode);
+      walk = walk.prev("section");
+      steps += 1;
+    }
+  }
+  const heroCtaScope =
+    preHeroSections.length > 0 || h1Section.length > 0
+      ? $([...preHeroSections, ...(h1Section.length ? [h1Section.get(0) as AnyNode] : [])])
+      : h1PrimaryContainer.length > 0
+        ? h1PrimaryContainer
+        : h1FallbackContainer;
+  let heroCtas = collectScopeCtas(heroCtaScope);
+  if (heroCtas.length === 0) {
+    heroCtas = collectScopeCtas(h1PrimaryContainer);
+  }
   if (heroCtas.length === 0) {
     heroCtas = collectScopeCtas(h1FallbackContainer);
   }
@@ -892,6 +924,21 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
   const hasDualHeroCta = uniqueHeroCtas.length >= 2;
   const ctaInHero = uniqueHeroCtas.length > 0;
   const heroCtaCount = heroCtas.length;
+  const heroCtaChoiceOverload = uniqueHeroCtas.length > 2;
+  const allH1Texts = $("h1")
+    .toArray()
+    .map((el) => $(el).text().replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const multipleCompetingH1 = allH1Texts.length > 1;
+  const eyebrowBannerHeadline =
+    preHeroSections.length > 0
+      ? $(preHeroSections[0])
+          .find("h2,h3,h4")
+          .first()
+          .text()
+          .replace(/\s+/g, " ")
+          .trim()
+      : "";
   const heroTextSource = h1PrimaryContainer.length > 0 ? h1PrimaryContainer : h1FallbackContainer;
   const heroText = (heroTextSource.length > 0 ? heroTextSource.text() : $("body").text()).replace(/\s+/g, " ").trim();
   const sectionNodes = $("section").toArray();
@@ -906,9 +953,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
     /((?:trusted by|used by|customers|businesses|brands|teams).{0,48}\d[\d,.]*\+?)|(\d[\d,.]*\+?\s*(?:users?|customers?|businesses|brands|teams)\s+(?:joined|use|using|trust|trusted|served)?)/gi,
     6,
   );
-  const heroRiskReversalMatches = collectRiskReversalMatches(heroText, 6);
-  const heroHasReassuranceMicrocopy = heroRiskReversalMatches.length > 0;
-  const ctaButtonsCount = ctaButtonSamples.length;
   const customerCountMatches = collectMatches(
     bodyText,
     /\b\d{1,3}(?:,\d{3})+\+?\s+(brands|customers|companies|agencies|users|businesses|marketers)\b/gi,
@@ -978,7 +1022,7 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
   const supportCueMatches = collectMatches(
     bodyText,
     /contact|help|support|chat|customer service|get in touch|help hub|help center|faq|knowledge base/gi,
-    12,
+    6,
   );
   const trustSignalsCount = trustClusterCount;
   const schemaScripts = $('script[type="application/ld+json"]').toArray();
@@ -997,21 +1041,23 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
   const hasOgTitle = Boolean(ogTitleValue);
   const twitterCardValue = $('meta[name="twitter:card"]').attr("content")?.trim() ?? "";
   const hasTwitterCard = Boolean(twitterCardValue);
-  const lastQuarterSections = sectionNodes.slice(Math.max(Math.floor(sectionNodes.length * 0.75), 0));
-  const supportLinkMatches = [...new Set(
-    [
-      ...$("header a, footer a")
-        .toArray()
-        .map((el) => `${$(el).text().replace(/\s+/g, " ").trim()} ${($(el).attr("href") ?? "").trim()}`),
-      ...lastQuarterSections.flatMap((section) =>
-        $(section)
-          .find("a")
-          .toArray()
-          .map((el) => `${$(el).text().replace(/\s+/g, " ").trim()} ${($(el).attr("href") ?? "").trim()}`),
-      ),
-    ].filter((entry) => /contact|help|support|chat|customer service|get in touch|help hub|help center|faq|knowledge base/i.test(entry)),
-  )].slice(0, 10);
-  const hasSupport = supportCueMatches.length > 0 || supportLinkMatches.length > 0;
+  const headerSupportAnchors = $("header a, [role='banner'] a")
+    .toArray()
+    .filter((el) => {
+      const t = $(el).text().replace(/\s+/g, " ").trim().toLowerCase();
+      const h = ($(el).attr("href") ?? "").toLowerCase();
+      if (t.length > 72) return false;
+      return (
+        /\/(contact|support|help|chat|customer|demo)/i.test(h) ||
+        /^(contact|help|support|chat)\b/i.test(t) ||
+        /\b(contact sales|talk to sales|customer support)\b/i.test(t)
+      );
+    });
+  const hasSupportInHeader = headerSupportAnchors.length > 0;
+  const headerSupportSamples = headerSupportAnchors
+    .map((el) => formatDisplayLabel(getInteractiveText(el)))
+    .filter(Boolean)
+    .slice(0, 4);
   const schemaFaqCount = schemaScripts.reduce((count, script) => {
     try {
       const parsed = JSON.parse($(script).text()) as unknown;
@@ -1041,7 +1087,11 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
       return count;
     }
   }, 0);
-  const { questionSet: faqQuestionSet, regionHeadingSamples: faqRegionHeadingSamples } = extractCroFaqInsights($);
+  const {
+    questionSet: faqQuestionSet,
+    regionHeadingSamples: faqRegionHeadingSamples,
+    hasFaqSectionHeading,
+  } = extractCroFaqInsights($);
   const faqQuestionCount = faqQuestionSet.size;
   const faqHeadingSamples = [...faqQuestionSet].slice(0, 5).map((text) => toTitleCaseDisplay(text));
   const analyticsSignalMatches = collectMatches($.html() ?? "", /googletagmanager|gtag\(|datalayer|fbq\(|clarity|hotjar|analytics/gi, 8);
@@ -1058,7 +1108,9 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
   const hasLiveProductProof = hasLiveTrendLanguage && (viewCountSignals >= 2 || hasProductImageDensity);
   const quantifiedPercentageMatches = collectMatches(bodyText, /\b\+?\d+(?:\.\d+)?\s?%/gi, 80);
   const quantifiedSentenceMatches = collectSentenceMatches(bodyText, /\b\+?\d+(?:\.\d+)?\s?%/gi, 20);
-  const quantifiedDisplaySnippets = collectNumericMetricSnippets(bodyText, 5);
+  const quantifiedStatClauses = extractPercentStatClauses(bodyText, 6);
+  const quantifiedDisplaySnippets =
+    quantifiedStatClauses.length > 0 ? quantifiedStatClauses : collectNumericMetricSnippets(bodyText, 5);
   const quantifiedScaleMatches = collectMatches(bodyText, /\b\d+(?:\.\d+)?\s?[KMBT]\+?\b/gi, 80);
   const quantifiedMultiplierMatches = collectMatches(bodyText, /\b\d+x\b/gi, 80);
   const quantifiedEntityMatches = collectMatches(
@@ -1086,6 +1138,7 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
     ...headingDescriptorMatches,
   ];
   const quantifiedOutcomeCount = new Set(quantifiedOutcomeMatches.map((item) => item.toLowerCase())).size;
+  const quantifiedMetricClauseCount = quantifiedStatClauses.length;
   const origin = safeUrl(targetUrl, targetUrl)?.origin ?? "";
   const pricingPathCandidates = ["/pricing", "/plans", "/prices"];
   const pricingPageScans = await Promise.all(
@@ -1168,6 +1221,7 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
   };
   let structuredPricingTierCount = 0;
   let hasStructuredPricingMatrix = false;
+  let structuredCardNodes: AnyNode[] = [];
   pricingSections.forEach((section) => {
     const sectionNode = $(section);
     const candidateCards = sectionNode
@@ -1189,7 +1243,10 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
       Math.max(signatures.length - 1, 1);
     if (avgSimilarity > 0.7) {
       hasStructuredPricingMatrix = true;
-      structuredPricingTierCount = Math.max(structuredPricingTierCount, candidateCards.length);
+      if (candidateCards.length >= structuredPricingTierCount) {
+        structuredPricingTierCount = candidateCards.length;
+        structuredCardNodes = candidateCards;
+      }
     }
   });
   const onPageMatrixDetected = hasPricingTable || hasStructuredPricingMatrix;
@@ -1204,6 +1261,35 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
     : hasPricingTable
       ? "tabular pricing header row"
       : "none";
+  const pricingCadenceHint = /\/mo|\/month|\/yr|\/year|per seat|monthly|annual|annually|\/mo\//i.test(pricingSectionText);
+  const comparePlansHint = /compare\s+plans|plan comparison|feature(s)?\s+matrix|side[- ]by[- ]side|what(?:'s| is) included/i.test(
+    `${pricingSectionText} ${bodyText.slice(0, 24_000)}`,
+  );
+  let pricingComparabilityHits = 0;
+  const pricingComparabilityNotes: string[] = [];
+  if (structuredCardNodes.length >= 2) {
+    const withMoney = structuredCardNodes.filter((ce) => /[$€£]|\bfree\b|\/mo|per seat|\/year/i.test($(ce).text())).length;
+    if (withMoney >= Math.min(structuredCardNodes.length, 3)) {
+      pricingComparabilityHits += 1;
+      pricingComparabilityNotes.push("price or cadence tokens inside tier cards");
+    }
+    const withFeatures = structuredCardNodes.filter((ce) => hasPricingFeatureList($(ce))).length;
+    if (withFeatures >= 2) {
+      pricingComparabilityHits += 1;
+      pricingComparabilityNotes.push("parallel feature/bullet lists across tiers");
+    }
+  }
+  if (pricingCadenceHint) {
+    pricingComparabilityHits += 1;
+    pricingComparabilityNotes.push("billing cadence language (/mo, per seat, annual)");
+  }
+  if (comparePlansHint || hasPricingTable) {
+    pricingComparabilityHits += 1;
+    pricingComparabilityNotes.push("compare / matrix / table cues");
+  }
+  const strongPricingLayout = onPageMatrixDetected && detectedPlanTierCount >= 3;
+  const pricingComparabilityStrong = strongPricingLayout && pricingComparabilityHits >= 2;
+  const pricingComparabilityWeak = strongPricingLayout && !pricingComparabilityStrong;
   const testimonialSectionText = $("section,article,div")
     .toArray()
     .filter((el) => /(testimonial|case stud|what .* say|customer)/i.test($(el).text()))
@@ -1227,7 +1313,8 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
   const footerNode = $("footer, [role='contentinfo']").first();
   const excludedFooterLinkRegex =
     /user group|community|blog|about|careers|contact|privacy|terms|accessibility|sitemap|facebook|instagram|linkedin|youtube|twitter|x\.com|cookie|legal|investor|partner/i;
-  const footerActionRegex = /\b(get|start|try|buy|book|request|download|contact|schedule|sign up|subscribe|see all|learn|demo|free trial|log in|login)\b/i;
+  const footerActionRegex =
+    /\b(get|start|try|buy|book|request|download|contact|schedule|sign up|subscribe|learn|demo|free trial|log in|login)\b/i;
   const footerIntentHrefRegex = /\/(demo|trial|signup|sign-up|pricing|checkout|get-started|book|login|log-in)/i;
   const preFooterSections =
     footerNode.length > 0 ? (footerNode.prevAll("section").slice(0, 4).toArray() as AnyNode[]) : [];
@@ -1248,31 +1335,49 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
       ...tailSectionNodes,
     ]),
   ];
+  const footerScopeText = footerZoneNodes
+    .map((region) => $(region).text().replace(/\s+/g, " ").trim())
+    .join(" ");
   const footerCandidates = footerZoneNodes.flatMap((region) =>
     $(region)
       .find("a,button,[role='button'],input[type='submit'],input[type='button']")
       .toArray(),
   );
+  const isFooterNavColumnLink = (el: AnyNode) => {
+    const node = $(el);
+    const foot = node.closest("footer");
+    if (!foot.length) return false;
+    if (node.closest("footer nav, footer [role='navigation'], footer [class*='footer-menu'], footer [class*='Footer']").length)
+      return true;
+    const ul = node.closest("ul");
+    return ul.length > 0 && ul.find("a").length >= 8;
+  };
   const footerCtaSampleSet = new Set<string>();
+  let footerCtaHasRiskInLabel = false;
   footerCandidates.forEach((el) => {
     const text = getInteractiveText(el);
     if (!text || text.length < 2 || text.length > 96) return;
+    if (/^see all\b/i.test(text)) return;
+    if (/\b(hubspot for startups|free business tools|user group)\b/i.test(text) && !hasButtonLikeStyle(el)) return;
     if (excludedFooterLinkRegex.test(text)) return;
     const href = ($(el).attr("href") ?? $(el).attr("formaction") ?? "").toLowerCase();
     const strongHref = footerIntentHrefRegex.test(href);
     const strongText = footerActionRegex.test(text) || actionCtaRegex.test(text);
     if (!(strongText || strongHref)) return;
-    if (!(hasButtonLikeStyle(el) || strongHref || strongText)) return;
+    const tag = (el.tagName ?? "").toLowerCase();
+    if (isFooterNavColumnLink(el) && tag === "a" && !hasButtonLikeStyle(el) && !strongHref) return;
+    if (!(hasButtonLikeStyle(el) || strongHref || tag === "button" || tag === "input" || $(el).attr("role") === "button"))
+      return;
+    if (collectRiskReversalMatches(text, 3).length > 0) footerCtaHasRiskInLabel = true;
     footerCtaSampleSet.add(formatDisplayLabel(text));
   });
   const footerCtaTexts = [...footerCtaSampleSet];
-  const footerScopeText = footerZoneNodes
-    .map((region) => $(region).text().replace(/\s+/g, " ").trim())
-    .join(" ");
-  const footerRiskMatches = collectRiskReversalMatches(footerScopeText, 6);
+  const combinedLateFunnelText = `${heroText} ${footerScopeText}`.replace(/\s+/g, " ").trim();
+  const combinedRiskMatches = collectRiskReversalMatches(combinedLateFunnelText, 10);
   const footerHasContextLine =
-    footerRiskMatches.length > 0 ||
-    /(setup in|minutes|risk-free|no commitment|money[- ]back)/i.test(footerScopeText);
+    combinedRiskMatches.length > 0 ||
+    footerCtaHasRiskInLabel ||
+    /(setup in|minutes|risk-free|no commitment|money[- ]back)/i.test(combinedLateFunnelText);
   const hasSecurityComplianceBadge = /(aicpa|soc\s?2?|iso\s?27001|gdpr|compliance|security certified)/i.test(
     footerText,
   );
@@ -1289,41 +1394,27 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
     .length;
   const hasAffiliateSignal = /\baffiliate\b/i.test(bodyText);
   const affiliateInFooterOnly = hasAffiliateSignal && !/(affiliate)/i.test(bodyText.replace(footerText, ""));
-  const cyrillicChars = (bodyText.match(/[А-Яа-яЁё]/g) ?? []).length;
-  const latinChars = (bodyText.match(/[A-Za-z]/g) ?? []).length;
-  const htmlLang = ($("html").attr("lang") ?? "").toLowerCase();
-  const mixedLanguageLikely = cyrillicChars >= 80 && latinChars >= 300 && cyrillicChars / Math.max(latinChars, 1) > 0.1;
-  const langMismatchLikely = htmlLang.startsWith("en") && cyrillicChars > latinChars * 0.2;
-
+  const faqDepthStatus: "pass" | "fail" =
+    faqQuestionCount >= 1 || schemaFaqCount >= 1 || hasFaqSectionHeading ? "pass" : "fail";
   const checksByKey: Record<string, CheckResult> = {
     "hero-clarity": {
       key: "hero-clarity",
       score: h1Text.length >= 10 && ctaInHero ? 88 : h1Text.length >= 10 ? 56 : 28,
-      details: `Hero H1: "${displayValue(h1Text)}". Hero CTA detected: ${yesNo(ctaInHero)}. Hero CTA samples: ${formatList(heroCtaDisplaySamples, "none", 4)}.`,
+      details: `Primary H1 (document order): "${displayValue(h1Text)}".${multipleCompetingH1 ? ` Additional H1 elements: ${formatList(allH1Texts.slice(1), "none", 3)} (multiple competing hero messages — review banner vs product headline hierarchy).` : ""}${eyebrowBannerHeadline ? ` Preceding banner/eyebrow heading: "${displayValue(eyebrowBannerHeadline)}".` : ""} Hero CTA detected: ${yesNo(ctaInHero)}. Hero CTA samples: ${formatList(heroCtaDisplaySamples, "none", 5)}.`,
       recommendation:
         "Critical: ensure headline clearly explains what the product is and keep a strong primary CTA visible above the fold.",
     },
     "hero-dual-cta": {
       key: "hero-dual-cta",
       score: hasDualHeroCta ? 86 : ctaInHero ? 58 : 34,
-      details: `Unique hero CTA variants detected: ${uniqueHeroCtas.length}. Hero CTAs: ${formatList(heroCtaDisplaySamples, "none", 4)}.`,
+      ...(heroCtaChoiceOverload ? { status: "warn" as const } : {}),
+      details: `Unique hero CTA variants detected: ${uniqueHeroCtas.length}; raw matches in hero scope: ${heroCtaCount}. (Hero scope includes up to two sections above the H1 section.) Hero CTAs: ${formatList(heroCtaDisplaySamples, "none", 6)}.${heroCtaChoiceOverload ? " Medium: choice overload risk — three or more competing actions with no deterministic visual-primary signal in HTML; promote one primary CTA through size/contrast." : ""}`,
       recommendation:
-        hasDualHeroCta
-          ? "Dual CTA strategy is present. Keep primary vs secondary action hierarchy visually clear."
-          : "Add complementary hero CTAs (e.g., self-serve + assisted/demo) to capture different buyer intent stages.",
-    },
-    "cta-microcopy-reassurance": {
-      key: "cta-microcopy-reassurance",
-      score: heroHasReassuranceMicrocopy ? 88 : 46,
-      details: `Risk-reversal microcopy near hero CTA detected: ${yesNo(heroHasReassuranceMicrocopy)}. Matched phrases: ${formatList(
-        heroRiskReversalMatches,
-        "none",
-        6,
-      )}.`,
-      recommendation:
-        heroHasReassuranceMicrocopy
-          ? "Keep reassurance microcopy directly below hero CTA and concise."
-          : "Add brief reassurance copy under hero CTA (no credit card, free trial window, cancel anytime).",
+        heroCtaChoiceOverload
+          ? "Reduce or visually rank hero CTAs so one primary action is obvious; keep secondary intents clearly secondary."
+          : hasDualHeroCta
+            ? "Dual CTA strategy is present. Keep primary vs secondary action hierarchy visually clear."
+            : "Add complementary hero CTAs (e.g., self-serve + assisted/demo) to capture different buyer intent stages.",
     },
     "problem-framing": {
       key: "problem-framing",
@@ -1336,9 +1427,19 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
     },
     "quantified-outcomes": {
       key: "quantified-outcomes",
-      score: quantifiedOutcomeCount >= 3 && customerProofMatches.length > 0 ? 86 : quantifiedOutcomeCount > 0 ? 68 : 38,
-      status: quantifiedOutcomeCount >= 3 && customerProofMatches.length > 0 ? "pass" : quantifiedOutcomeCount > 0 ? "warn" : "fail",
-      details: `Quantified outcome cues detected: ${quantifiedOutcomeCount}. Matched cues: ${formatList(
+      score:
+        quantifiedMetricClauseCount >= 2 && customerProofMatches.length > 0
+          ? 86
+          : quantifiedMetricClauseCount > 0 || quantifiedOutcomeCount > 0
+            ? 68
+            : 38,
+      status:
+        quantifiedMetricClauseCount >= 2 && customerProofMatches.length > 0
+          ? "pass"
+          : quantifiedMetricClauseCount > 0 || quantifiedOutcomeCount > 0
+            ? "warn"
+            : "fail",
+      details: `Distinct %-stat clauses extracted: ${quantifiedMetricClauseCount}. (Broader numeric cue count, deduped: ${quantifiedOutcomeCount}.) Display samples: ${formatList(
         quantifiedDisplaySnippets.length > 0
           ? quantifiedDisplaySnippets
           : quantifiedSentenceMatches.length > 0
@@ -1348,10 +1449,10 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
         5,
       )}. Customer/volume cues: ${formatList(customerProofMatches, "none", 5)}.`,
       recommendation:
-        quantifiedOutcomeCount >= 3 && customerProofMatches.length > 0
+        quantifiedMetricClauseCount >= 2 && customerProofMatches.length > 0
           ? "Keep quantified outcomes and customer-volume proof close to hero and primary CTA areas."
-          : quantifiedOutcomeCount > 0
-            ? `Detected ${quantifiedOutcomeCount} numeric cues but no customer volume proof. Add a social-proof stat like "X+ customers" near the hero.`
+          : quantifiedMetricClauseCount > 0 || quantifiedOutcomeCount > 0
+            ? `Add customer-volume proof near the hero; keep each stat as one clear clause (avoid counting one sentence as many duplicate cues).`
             : "Add quantified outcomes (percentages, multipliers, or totals) and at least one customer-volume proof stat.",
     },
     "before-after-comparison": {
@@ -1371,35 +1472,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
         hasLiveProductProof
           ? "Live product proof is visible. Keep examples fresh and clearly labeled."
           : "Add a visible product-proof block (live examples, outputs, trend cards, or real result snapshots) before signup.",
-    },
-    "cta-audit": {
-      key: "cta-audit",
-      score:
-        heroCtaCount >= 1 && uniqueHeroCtas.length >= 2 && ctaActionVerbMatch
-          ? 88
-          : heroCtaCount >= 1 && uniqueHeroCtas.length < 2
-            ? 68
-            : 30,
-      status:
-        heroCtaCount >= 1 && uniqueHeroCtas.length >= 2 && ctaActionVerbMatch
-          ? "pass"
-          : heroCtaCount >= 1 && uniqueHeroCtas.length < 2
-            ? "warn"
-            : "fail",
-      negativeSignals: [heroCtaCount === 0, !ctaActionVerbMatch, allCtasGeneric].filter(Boolean).length,
-      details: `Hero CTA count: ${heroCtaCount}. Unique hero CTA variants: ${uniqueHeroCtas.length}. Action-language match: ${yesNo(
-        ctaActionVerbMatch,
-      )}. Generic-only CTA pattern: ${yesNo(allCtasGeneric)}. CTA-like elements detected: ${ctaButtonsCount}. Button-like CTA elements: ${buttonLikeCtaCount}. Sample CTAs: ${formatList(
-        ctaButtonSamples.map((sample) => formatDisplayLabel(sample)),
-        "none",
-        6,
-      )}.`,
-      recommendation:
-        heroCtaCount >= 1 && uniqueHeroCtas.length >= 2 && ctaActionVerbMatch
-          ? `We found ${ctaButtonsCount} CTAs (${formatList(ctaButtonSamples.map((sample) => formatDisplayLabel(sample)), "none", 3)}). They pass action-language checks. Keep placement and hierarchy consistent across hero and pre-footer.`
-          : heroCtaCount >= 1
-            ? `We found ${ctaButtonsCount} CTAs (${formatList(ctaButtonSamples.map((sample) => formatDisplayLabel(sample)), "none", 3)}), but hero variants are limited. Add a secondary intent CTA (e.g., demo vs trial) in the hero.`
-            : "No reliable hero CTA was detected. Add at least one prominent, action-oriented hero CTA with clear intent.",
     },
     "pricing-model-clarity": {
       key: "pricing-model-clarity",
@@ -1421,24 +1493,18 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
     },
     "pricing-comparison-clarity": {
       key: "pricing-comparison-clarity",
-      score: onPageMatrixDetected && detectedPlanTierCount >= 3 ? 86 : onPageMatrixDetected || detectedPlanTierCount >= 3 ? 68 : 46,
-      status: onPageMatrixDetected && detectedPlanTierCount >= 3 ? "pass" : onPageMatrixDetected || detectedPlanTierCount >= 3 ? "warn" : "fail",
-      details:
-        onPageMatrixDetected && detectedPlanTierCount >= 3
-          ? `On-page comparison layout: ${pricingMatrixKind}. Distinct plan tiers counted in that layout: ${detectedPlanTierCount}. Pricing paths checked: ${formatList(
-              scannedPricingPaths,
-              "none",
-              3,
-            )}. Pricing-path comparison signals: ${pricingPathSignalCount > 0 ? formatList(comparisonPaths, "none", 3) : "not required when on-page matrix is confirmed"}.`
-          : `Distinct plan tiers counted (structured cards or pricing-table header row, plus linked /pricing scans): ${detectedPlanTierCount}. On-page comparison matrix detected: ${yesNo(
-              onPageMatrixDetected,
-            )} (${pricingMatrixKind}). Pricing-path comparison signals: ${formatList(comparisonPaths, "none", 3)}. Pricing paths checked: ${formatList(scannedPricingPaths, "none", 3)}.`,
-      recommendation:
-        onPageMatrixDetected && detectedPlanTierCount >= 3
-          ? "Keep pricing tiers clearly comparable with stable card order and feature contrast."
-          : onPageMatrixDetected || detectedPlanTierCount >= 3
-            ? "Strengthen pricing comparison clarity by ensuring both a visible side-by-side matrix and at least three clear plan tiers."
-            : "Add a side-by-side comparison matrix with clear plan tiers so users can self-qualify quickly.",
+      score: pricingComparabilityStrong ? 86 : strongPricingLayout || onPageMatrixDetected || detectedPlanTierCount >= 3 ? 68 : 46,
+      status: pricingComparabilityStrong ? "pass" : strongPricingLayout || onPageMatrixDetected || detectedPlanTierCount >= 3 ? "warn" : "fail",
+      details: `Layout: ${pricingMatrixKind}. Distinct tiers counted: ${detectedPlanTierCount}. Comparability signals: ${pricingComparabilityHits} of 2+ recommended (${pricingComparabilityStrong ? "sufficient for confident comparability" : pricingComparabilityWeak ? "tiers visible but comparability thin" : "limited pricing layout"}). ${formatList(
+        pricingComparabilityNotes,
+        "none",
+        5,
+      )}. Linked pricing pages with comparison/table cues: ${pricingPathSignalCount}. Pricing paths checked: ${formatList(scannedPricingPaths, "none", 3)}.`,
+      recommendation: pricingComparabilityStrong
+        ? "Pricing tiers look structurally comparable. Keep units, cadence, and feature rows aligned across cards."
+        : pricingComparabilityWeak
+          ? "Pricing tiers are visible but comparability cues are thin (price/cadence in cards, parallel feature rows, or explicit compare language). Add clearer side-by-side contrast."
+          : "Add a side-by-side comparison matrix with clear plan tiers so users can self-qualify quickly.",
     },
     "social-proof": {
       key: "social-proof",
@@ -1475,17 +1541,6 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
           ? "External verification signals are present. Keep at least one independent review source visible."
           : "Add independent verification near testimonials (review-platform badges, ratings, or external profile links).",
     },
-    "language-consistency": {
-      key: "language-consistency",
-      score: mixedLanguageLikely || langMismatchLikely ? 24 : 84,
-      details: `Latin chars: ${latinChars}. Cyrillic chars: ${cyrillicChars}. HTML lang: "${displayValue(htmlLang)}". Mixed-language risk: ${yesNo(
-        mixedLanguageLikely || langMismatchLikely,
-      )}.`,
-      recommendation:
-        mixedLanguageLikely || langMismatchLikely
-          ? "Fix localization consistency (single language per page or explicit locale routing) to avoid trust and comprehension loss."
-          : "Language consistency looks clean for the detected page content.",
-    },
     "offer-communication": {
       key: "offer-communication",
       score: /features|benefits|compare|faq|how it works/i.test(bodyText) ? 80 : 56,
@@ -1506,48 +1561,39 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
     },
     "support-objections": {
       key: "support-objections",
-      score: hasSupport ? 86 : 44,
-      details: `Support signals detected: ${yesNo(hasSupport)}. Support cues: ${formatList(
-        supportCueMatches,
+      score: hasSupportInHeader ? 86 : 52,
+      status: hasSupportInHeader ? "pass" : "warn",
+      details: `Support or contact link in header/banner (deterministic): ${yesNo(hasSupportInHeader)}. Header samples: ${formatList(
+        headerSupportSamples,
         "none",
-        5,
-      )}. Support link samples: ${formatList(
-        supportLinkMatches,
-        "none",
-        5,
-      )}.`,
-      recommendation:
-        "Expose support channels (contact, help center, chat) in the header, sticky bar, or near primary CTAs to reduce purchase hesitation.",
+        4,
+      )}. (Body-wide keyword matches are shown for context only: ${formatList(supportCueMatches, "none", 4)}.)`,
+      recommendation: hasSupportInHeader
+        ? "Support/contact entry points are visible from the top of the page."
+        : "Add a visible Contact, Support, Help, or Chat link in the header or top banner so buyers can resolve objections without hunting the footer.",
     },
     "faq-depth": {
       key: "faq-depth",
       score:
-        faqQuestionCount >= 4
-          ? 86
-          : faqQuestionCount === 0 && schemaFaqCount > 0
-            ? 66
-            : faqQuestionCount > 0
-              ? 64
+        faqQuestionCount >= 4 || schemaFaqCount >= 4
+          ? 88
+          : faqQuestionCount >= 1 || schemaFaqCount >= 1
+            ? 80
+            : hasFaqSectionHeading
+              ? 78
               : 40,
-      status:
-        faqQuestionCount >= 4
-          ? "pass"
-          : faqQuestionCount === 0 && schemaFaqCount > 0
-            ? "warn"
-            : faqQuestionCount > 0
-              ? "warn"
-              : "fail",
-      details: `Visible FAQ question count detected: ${faqQuestionCount}. Schema FAQ question count (separate): ${schemaFaqCount}. FAQ region headings: ${formatList(
+      status: faqDepthStatus,
+      details: `Visible FAQ question count: ${faqQuestionCount}. Schema FAQ items: ${schemaFaqCount}. FAQ section heading detected: ${yesNo(hasFaqSectionHeading)}. Region headings: ${formatList(
         faqRegionHeadingSamples,
         "none",
         3,
-      )}. FAQ question samples: ${formatList(faqHeadingSamples, "none", 5)}.`,
+      )}. Question samples: ${formatList(faqHeadingSamples, "none", 5)}.${hasFaqSectionHeading && faqQuestionCount === 0 && schemaFaqCount === 0 ? " Note: labeled FAQ section present; accordion markup may limit automated question extraction." : ""}`,
       recommendation:
-        faqQuestionCount >= 4
+        faqQuestionCount >= 4 || schemaFaqCount >= 4
           ? "FAQ depth is strong. Keep adding high-anxiety objections (billing, fit, security, cancellation)."
-          : faqQuestionCount === 0 && schemaFaqCount > 0
-            ? "Schema FAQ is present but visible FAQ questions were not reliably found. Ensure FAQ accordion/question text is server-rendered or exposed in accessible DOM."
-            : "Expand visible FAQ depth with high-anxiety questions (cancellation, usage limits, fit, security, differentiation).",
+          : hasFaqSectionHeading || faqQuestionCount > 0 || schemaFaqCount > 0
+            ? "FAQ content is present. Ensure questions remain readable to crawlers and assistive tech (visible text, summary elements, or structured FAQPage data)."
+            : "Add a visible FAQ that answers purchase objections (billing, cancellation, fit, security).",
     },
     "analytics-tracking": {
       key: "analytics-tracking",
@@ -1566,9 +1612,9 @@ async function buildCroChecks($: ReturnType<typeof load>, bodyText: string, targ
       key: "footer-cta-clarity",
       score: footerCtaTexts.length === 0 ? 42 : footerHasContextLine ? 84 : 66,
       status: footerCtaTexts.length === 0 ? "fail" : footerHasContextLine ? "pass" : "warn",
-      details: `Footer-zone CTA count (footer plus last page sections / pre-footer bands): ${footerCtaTexts.length}. Risk-reversal microcopy in that zone: ${yesNo(
+      details: `Footer-zone CTA count (footer plus last page sections / pre-footer bands): ${footerCtaTexts.length}. Risk-reversal (hero + footer zone, or inside CTA labels): ${yesNo(
         footerHasContextLine,
-      )}. Matched reassurance phrases: ${formatList(footerRiskMatches, "none", 4)}. Footer-zone CTA samples: ${formatList(
+      )}. Matched reassurance phrases: ${formatList(combinedRiskMatches, "none", 5)}. Footer-zone CTA samples: ${formatList(
         footerCtaTexts,
         "none",
         4,

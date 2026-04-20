@@ -191,8 +191,6 @@ const CRO_TOPICS: TopicConfig[] = [
     keys: [
       "hero-clarity",
       "hero-dual-cta",
-      "cta-microcopy-reassurance",
-      "cta-audit",
       "pricing-comparison-clarity",
       "footer-cta-clarity",
     ],
@@ -214,7 +212,6 @@ const CRO_TOPICS: TopicConfig[] = [
     keys: [
       "technical-health",
       "analytics-tracking",
-      "language-consistency",
     ],
     icon: Settings,
   },

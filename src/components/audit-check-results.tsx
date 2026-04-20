@@ -19,9 +19,7 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "internal-linking",
     "hero-clarity",
     "hero-dual-cta",
-    "cta-microcopy-reassurance",
     "quantified-outcomes",
-    "cta-audit",
     "pricing-comparison-clarity",
     "footer-cta-clarity",
   ],
@@ -44,7 +42,6 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
     "internal-links-health",
     "technical-health",
     "analytics-tracking",
-    "language-consistency",
   ],
   Performance: [
     "pagespeed",

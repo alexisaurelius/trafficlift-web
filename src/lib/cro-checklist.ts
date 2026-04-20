@@ -14,34 +14,16 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Checks for complementary primary and secondary CTAs in the hero.",
   },
   {
-    key: "cta-microcopy-reassurance",
-    title: "CTA Microcopy Reassurance",
-    priority: "high",
-    description: "Checks for no-risk reassurance text near hero CTA (trial, no card, cancel anytime).",
-  },
-  {
     key: "quantified-outcomes",
     title: "Quantified Outcomes Evidence",
     priority: "high",
     description: "Checks for concrete performance metrics (percentages, multipliers, timelines).",
   },
   {
-    key: "cta-audit",
-    title: "Call To Action Quality",
-    priority: "critical",
-    description: "CTA visibility, strength, consistency, and placement along user flow.",
-  },
-  {
     key: "pricing-comparison-clarity",
     title: "Pricing Comparison Clarity",
     priority: "high",
-    description: "Checks whether multi-tier pricing is easy to compare (table/matrix style signals).",
-  },
-  {
-    key: "language-consistency",
-    title: "Language Consistency",
-    priority: "critical",
-    description: "Detects mixed-language content that can break trust and comprehension.",
+    description: "Checks whether multi-tier pricing is easy to compare (layout plus comparability signals).",
   },
   {
     key: "technical-health",
@@ -53,13 +35,13 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     key: "support-objections",
     title: "Support and Contact Paths",
     priority: "medium",
-    description: "Visible support and contact paths (help center, chat, contact).",
+    description: "Support or contact link visible in the header/banner (deterministic).",
   },
   {
     key: "faq-depth",
     title: "FAQ Depth and Coverage",
     priority: "high",
-    description: "Checks FAQ volume for core purchase objections (billing, cancellation, fit, safety).",
+    description: "Detects FAQ sections, visible or schema-backed questions, and accordion-friendly markup.",
   },
   {
     key: "analytics-tracking",
@@ -71,6 +53,6 @@ export const CRO_AUDIT_CHECKLIST: ChecklistTemplate[] = [
     key: "footer-cta-clarity",
     title: "Footer CTA Clarity",
     priority: "medium",
-    description: "Checks for contextual microcopy and low-friction framing in footer CTAs.",
+    description: "Conversion-style CTAs in the footer zone plus risk-reversal (including hero + CTA label text).",
   },
 ];
