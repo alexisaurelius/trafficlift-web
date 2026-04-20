@@ -189,8 +189,10 @@ const CRO_TOPICS: TopicConfig[] = [
     id: "funnel",
     label: "Funnel",
     keys: [
+      "hero-clarity",
       "hero-dual-cta",
       "pricing-comparison-clarity",
+      "footer-cta-clarity",
     ],
     icon: FileText,
   },
@@ -199,6 +201,7 @@ const CRO_TOPICS: TopicConfig[] = [
     label: "Trust",
     keys: [
       "support-objections",
+      "quantified-outcomes",
       "faq-depth",
     ],
     icon: ShieldCheck,

@@ -26,7 +26,6 @@ type DashboardAuditsPanelProps = {
   auditType?: AuditType;
 };
 
-/** Client-side UX only — the API does not stream real step progress. */
 function estimateProgress(audit: AuditItem) {
   if (audit.status === "COMPLETED" || audit.status === "FAILED") {
     return 100;
@@ -35,13 +34,10 @@ function estimateProgress(audit: AuditItem) {
   const ageSeconds = Math.max(0, Math.floor((Date.now() - new Date(audit.createdAt).getTime()) / 1000));
 
   if (audit.status === "QUEUED") {
-    // Rises toward ~34% while waiting for a worker (no hard plateau that looks “stuck”).
-    return Math.min(34, Math.round(8 + 26 * (1 - Math.exp(-ageSeconds / 22))));
+    return Math.min(35, 12 + ageSeconds * 2);
   }
 
-  // RUNNING: move toward a sub-100 cap so the bar does not read as “one step from done” while work may still run.
-  const pct = 34 + 58 * (1 - Math.exp(-ageSeconds / 42));
-  return Math.min(94, Math.round(pct));
+  return Math.min(92, 35 + ageSeconds * 4);
 }
 
 function scoreBarColor(score: number | null) {
@@ -183,9 +179,7 @@ export function DashboardAuditsPanel({
                     <div className="mt-1 flex items-center justify-between gap-3">
                       <p className="text-xs text-[var(--on-surface)]/65">
                         {isActive
-                          ? audit.status === "QUEUED"
-                            ? `Queued… ~${progress}%`
-                            : `Processing… ~${progress}%`
+                          ? `Processing... ${progress}%`
                           : audit.status === "FAILED"
                             ? (audit.errorMessage ?? "Audit failed.")
                             : `Score strength: ${completedPercent}%`}

@@ -13,7 +13,7 @@ import {
   parseKeywordCandidates,
 } from "@/lib/keyword-match";
 import { AUDIT_CHECKLIST } from "@/lib/seo-checklist";
-import { CRO_AUDIT_CHECKLIST, mergeCroChecklistWithDb } from "@/lib/cro-checklist";
+import { CRO_AUDIT_CHECKLIST } from "@/lib/cro-checklist";
 import { auditTypeFromKeyword } from "@/lib/audit-mode";
 const LIVE_KEYWORD_FETCH_TIMEOUT_MS = 900;
 
@@ -116,51 +116,34 @@ export default async function AuditDetailsPage({
   );
 
   const score = audit.score ?? 0;
-  const checksWithEffectivePriority =
-    auditType === "cro"
-      ? mergeCroChecklistWithDb(audit).map((check) => {
-          const priority = effectivePriorityForCheck(check);
-          const status: "pass" | "fail" | "warn" =
-            check.status === "warn" ? "warn" : check.status === "pass" ? "pass" : "fail";
-          return {
-            ...check,
-            priority,
-            status,
-            details: check.details,
-            recommendation: check.recommendation,
-          };
-        })
-      : audit.checks
-          .filter((check) => activeCheckKeys.has(check.key))
-          .map((check) => {
-            let priority = effectivePriorityForCheck(check);
-            let status: "pass" | "fail" | "warn" =
-              check.status === "warn" ? "warn" : check.status === "pass" ? "pass" : "fail";
-            let details = check.details;
-            let recommendation = check.recommendation;
+  const checksWithEffectivePriority = audit.checks.filter((check) => activeCheckKeys.has(check.key)).map((check) => {
+    let priority = effectivePriorityForCheck(check);
+    let status: "pass" | "fail" | "warn" = check.status === "warn" ? "warn" : check.status === "pass" ? "pass" : "fail";
+    let details = check.details;
+    let recommendation = check.recommendation;
 
-            if (check.key === "title-tag" && liveKeywordCoverage && !liveKeywordCoverage.titleHasKeyword) {
-              priority = "critical";
-              status = "fail";
-              details = `Current title: "${liveKeywordCoverage.currentTitle || "(empty)"}".\nTarget keyword(s): ${targetKeywordList}`;
-              recommendation = `Include one target keyword naturally in the title and keep it 50-60 characters.`;
-            }
+    if (check.key === "title-tag" && liveKeywordCoverage && !liveKeywordCoverage.titleHasKeyword) {
+      priority = "critical";
+      status = "fail";
+      details = `Current title: "${liveKeywordCoverage.currentTitle || "(empty)"}".\nTarget keyword(s): ${targetKeywordList}`;
+      recommendation = `Include one target keyword naturally in the title and keep it 50-60 characters.`;
+    }
 
-            if (check.key === "h1-count" && liveKeywordCoverage && !liveKeywordCoverage.h1HasKeyword) {
-              priority = "critical";
-              status = "fail";
-              details = `Current H1: "${liveKeywordCoverage.currentH1 || "(empty)"}".\nTarget keyword(s): ${targetKeywordList}`;
-              recommendation = `Use exactly one H1 and include one target keyword naturally.`;
-            }
+    if (check.key === "h1-count" && liveKeywordCoverage && !liveKeywordCoverage.h1HasKeyword) {
+      priority = "critical";
+      status = "fail";
+      details = `Current H1: "${liveKeywordCoverage.currentH1 || "(empty)"}".\nTarget keyword(s): ${targetKeywordList}`;
+      recommendation = `Use exactly one H1 and include one target keyword naturally.`;
+    }
 
-            return {
-              ...check,
-              priority,
-              status,
-              details,
-              recommendation,
-            };
-          });
+    return {
+      ...check,
+      priority,
+      status,
+      details,
+      recommendation,
+    };
+  });
   const passChecks = checksWithEffectivePriority.filter((check) => check.status === "pass");
   const warnChecks = checksWithEffectivePriority.filter((check) => check.status === "warn");
   const failChecks = checksWithEffectivePriority.filter((check) => check.status === "fail");
