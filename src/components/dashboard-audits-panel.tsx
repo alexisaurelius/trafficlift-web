@@ -39,9 +39,9 @@ function estimateProgress(audit: AuditItem) {
     return Math.min(34, Math.round(8 + 26 * (1 - Math.exp(-ageSeconds / 22))));
   }
 
-  // RUNNING: asymptotically approaches 99% so the bar keeps moving instead of freezing at ~92% forever.
-  const pct = 34 + 65 * (1 - Math.exp(-ageSeconds / 42));
-  return Math.min(99, Math.round(pct));
+  // RUNNING: move toward a sub-100 cap so the bar does not read as “one step from done” while work may still run.
+  const pct = 34 + 58 * (1 - Math.exp(-ageSeconds / 42));
+  return Math.min(94, Math.round(pct));
 }
 
 function scoreBarColor(score: number | null) {

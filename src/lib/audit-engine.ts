@@ -166,13 +166,18 @@ async function fetchWithRedirectTrace(
   };
 }
 
-async function fetchText(url: string) {
-  const response = await fetch(url, {
-    headers: { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" },
-    cache: "no-store",
-  });
-  if (!response.ok) return null;
-  return response.text();
+async function fetchText(url: string, timeoutMs = 12_000) {
+  try {
+    const response = await fetch(url, {
+      headers: { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return null;
+    return response.text();
+  } catch {
+    return null;
+  }
 }
 
 function hasStrongCacheControl(cacheControlHeader: string) {

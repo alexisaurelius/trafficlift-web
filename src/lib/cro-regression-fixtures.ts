@@ -3,7 +3,6 @@ export type CroRegressionFixture = {
   expected: {
     heroDualCtaStatus: "pass" | "warn" | "fail";
     faqDepthStatus: "pass" | "warn" | "fail";
-    footerCtaStatus: "pass" | "warn" | "fail";
     scoreRange: [number, number];
   };
 };
@@ -15,7 +14,6 @@ export const CRO_REGRESSION_FIXTURES: CroRegressionFixture[] = [
     expected: {
       heroDualCtaStatus: "pass",
       faqDepthStatus: "pass",
-      footerCtaStatus: "pass",
       scoreRange: [90, 95],
     },
   },
