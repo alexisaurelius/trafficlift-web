@@ -21,12 +21,6 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "SERP-safe length and compelling value proposition.",
   },
   {
-    key: "meta-redundancy",
-    title: "Meta Keyword Redundancy",
-    priority: "medium",
-    description: "Overuse of exact keyword phrase and repetitive copy patterns.",
-  },
-  {
     key: "h1-count",
     title: "H1 and Primary Heading",
     priority: "high",
@@ -46,9 +40,9 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
   },
   {
     key: "keyword-usage",
-    title: "Keyword Usage and Density",
-    priority: "high",
-    description: "Exact and partial phrase usage with topical depth.",
+    title: "Main Content Length & Mentions",
+    priority: "low",
+    description: "Word count and target phrase mentions in primary content (informational, not a ranking score).",
   },
   {
     key: "structured-data",
@@ -60,7 +54,7 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     key: "schema-coverage",
     title: "Schema Coverage by Type",
     priority: "high",
-    description: "Presence of high-impact schema types like FAQ/Organization/WebSite.",
+    description: "Organization/WebSite and optional FAQ JSON-LD where it matches visible content.",
   },
   {
     key: "canonical",
@@ -107,8 +101,8 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
   {
     key: "robots",
     title: "Robots Rules",
-    priority: "medium",
-    description: "Crawl directives and sitemap declarations.",
+    priority: "low",
+    description: "Crawl directives; sitemap in robots.txt is optional if sitemaps are submitted elsewhere.",
   },
   {
     key: "robots-ai-policy",
@@ -159,22 +153,10 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Balance between single-page UX and crawlable multi-page SEO structure.",
   },
   {
-    key: "eeat-signals",
-    title: "Trust and E-E-A-T Signals",
-    priority: "low",
-    description: "Author visibility, testimonials, and review presence.",
-  },
-  {
-    key: "author-credibility",
-    title: "Author and Team Credibility",
-    priority: "medium",
-    description: "Named experts, author bylines, and transparent team identity signals.",
-  },
-  {
     key: "pagespeed",
     title: "Page Speed and Core Web Vitals",
-    priority: "critical",
-    description: "LCP, CLS, INP/FID trend and render performance.",
+    priority: "high",
+    description: "LCP, CLS, INP/FID when PageSpeed API is configured.",
   },
   {
     key: "render-blocking-resources",
@@ -203,7 +185,7 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
   {
     key: "safe-browsing",
     title: "Google Safe Browsing Risk",
-    priority: "critical",
-    description: "Malware and phishing risk flags from Google Safe Browsing API.",
+    priority: "high",
+    description: "Malware and phishing risk flags when the Safe Browsing API is configured.",
   },
 ];

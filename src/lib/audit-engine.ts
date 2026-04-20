@@ -7,6 +7,7 @@ import { CRO_AUDIT_CHECKLIST } from "@/lib/cro-checklist";
 import { isCroAuditKeyword } from "@/lib/audit-mode";
 import {
   countExactKeywordMatches,
+  expandKeywordsForSemanticMatch,
   formatKeywordCandidatesAsQuotedList,
   matchesAnyKeywordEquivalent,
   parseKeywordCandidates,
@@ -625,6 +626,34 @@ function parseTitleDescription(html: string) {
     description: $('meta[name="description"]').attr("content")?.trim() ?? "",
     metaRobots: parseMetaRobots($),
   };
+}
+
+/** Primary visible copy: prefer <main>, else <article>, else body with chrome stripped. */
+function extractPrimaryContentText($: ReturnType<typeof load>) {
+  const main = $("main, [role='main']").first();
+  if (main.length) return main.text().replace(/\s+/g, " ").trim();
+  const article = $("article").first();
+  if (article.length) return article.text().replace(/\s+/g, " ").trim();
+  const shell = $("body").clone();
+  shell
+    .find(
+      "header, nav, footer, [role='banner'], [role='navigation'], [role='contentinfo'], [aria-hidden='true'], script, style, noscript",
+    )
+    .remove();
+  return shell.text().replace(/\s+/g, " ").trim();
+}
+
+/** First heading in main, or first outside header/nav/footer landmarks (not document-order mega-menu). */
+function firstStructuralHeadingTag($: ReturnType<typeof load>) {
+  const main = $("main, [role='main']").first();
+  if (main.length) {
+    const h = main.find("h1,h2,h3,h4,h5,h6").first();
+    if (h.length) return { tag: (h.get(0)?.tagName ?? "").toLowerCase(), found: true };
+  }
+  const candidate = $("h1,h2,h3,h4,h5,h6")
+    .toArray()
+    .find((node) => $(node).closest("header, nav, footer, [role='banner'], [role='navigation'], [role='contentinfo']").length === 0);
+  return { tag: (candidate?.tagName ?? "").toLowerCase(), found: Boolean(candidate) };
 }
 
 function normalizeForDuplicate(value: string) {
@@ -1840,34 +1869,38 @@ export async function runAuditJob(auditId: string) {
     const canonicalTargetNoindex = canonicalProbe
       ? hasNoindexDirective(`${canonicalProbe.xRobotsTag} ${canonicalTargetMetaRobots}`)
       : false;
-    const titleHasKeyword = matchesAnyKeywordEquivalent(title, activeKeywords);
-    const metaHasKeyword = matchesAnyKeywordEquivalent(description, activeKeywords);
+    const semanticKeywords = expandKeywordsForSemanticMatch(activeKeywords);
+    const titleHasKeyword = matchesAnyKeywordEquivalent(title, semanticKeywords);
+    const titleHasFullPhrase = matchesAnyKeywordEquivalent(title, activeKeywords);
+    const metaHasKeyword = matchesAnyKeywordEquivalent(description, semanticKeywords);
     const h1Count = $("h1").length;
     const h1Text = $("h1").first().text().trim();
-    const h1ContainsKeyword = matchesAnyKeywordEquivalent(h1Text, activeKeywords);
+    const h1ContainsKeyword = matchesAnyKeywordEquivalent(h1Text, semanticKeywords);
     const h2Count = $("h2").length;
     const h2WithKeywordCount = $("h2")
       .toArray()
-      .filter((el) => matchesAnyKeywordEquivalent($(el).text(), activeKeywords)).length;
+      .filter((el) => matchesAnyKeywordEquivalent($(el).text(), semanticKeywords)).length;
     const h3Count = $("h3").length;
     const footerH2Count = $("footer h2").length;
-    const firstHeadingTagRaw = $("h1, h2, h3, h4, h5, h6").first().get(0)?.tagName ?? "";
-    const firstHeadingTag = firstHeadingTagRaw.toLowerCase();
-    const firstHeadingIsH1 = firstHeadingTag === "h1";
-    const bodyText = $("body").text().replace(/\s+/g, " ").trim();
-    const wordCount = bodyText ? bodyText.split(" ").length : 0;
-    const keywordCount = countExactKeywordMatches(bodyText, activeKeywords);
+    const structuralHeading = firstStructuralHeadingTag($);
+    const firstHeadingTag = structuralHeading.tag;
+    const firstHeadingIsH1 = structuralHeading.found && firstHeadingTag === "h1";
+    const primaryContentText = extractPrimaryContentText($);
+    const wordCount = primaryContentText ? primaryContentText.split(/\s+/).filter(Boolean).length : 0;
+    const keywordCount = countExactKeywordMatches(primaryContentText, activeKeywords);
     const keywordDensity = wordCount > 0 ? (keywordCount / wordCount) * 100 : 0;
     const exactKeywordInMetaCount = countExactKeywordMatches(description, activeKeywords);
     const headingHierarchyIssues: string[] = [];
     if (h1Count !== 1) headingHierarchyIssues.push(`expected exactly one H1 but found ${h1Count}`);
-    if (!firstHeadingIsH1) headingHierarchyIssues.push(`first heading is ${firstHeadingTag || "none"} instead of H1`);
+    if (structuralHeading.found && !firstHeadingIsH1) {
+      headingHierarchyIssues.push(
+        `first heading in primary content is ${firstHeadingTag || "none"} instead of H1 (nav/mega-menu excluded)`,
+      );
+    }
     if (h2Count === 0) headingHierarchyIssues.push("no H2 section headings were found");
-    if (footerH2Count > 0) headingHierarchyIssues.push(`${footerH2Count} H2 heading(s) found inside footer`);
-    const metaAppearsStuffed = exactKeywordInMetaCount > 1;
-
     const images = $("img").toArray();
-    const missingAlt = images.filter((img) => !($(img).attr("alt") ?? "").trim()).length;
+    const missingAltAttribute = images.filter((img) => $(img).attr("alt") === undefined).length;
+    const decorativeAltCount = images.filter((img) => ($(img).attr("alt") ?? "") === "").length;
     const nonLazyImages = images.filter((img) => {
       const loading = ($(img).attr("loading") ?? "").toLowerCase();
       return loading !== "lazy";
@@ -2104,47 +2137,28 @@ export async function runAuditJob(auditId: string) {
     const twitterDescription = $('meta[name="twitter:description"]').attr("content") ?? "";
     const twitterImage = $('meta[name="twitter:image"]').attr("content") ?? "";
 
-    const testimonialNodes = $('blockquote, [class*="testimonial" i], [id*="testimonial" i]').length;
-    const hasTestimonials =
-      testimonialNodes > 0 || /(testimonial|testimonials|case study|customer stories|trusted by|reviews?)/i.test(bodyText);
-    const hasNamedAuthor = /(by\s+[A-Z][a-z]+\s+[A-Z][a-z]+|author)/.test(bodyText);
-    const aboutLinkMatches = $("a[href]")
-      .toArray()
-      .map((a) => $(a).attr("href") ?? "")
-      .map((href) => safeUrl(href, livePageUrl))
-      .filter((url): url is URL => Boolean(url))
-      .filter((url) => url.origin === origin)
-      .map((url) => url.pathname.toLowerCase())
-      .filter((path) => path === "/about" || path === "/about/" || path === "/about-us" || path === "/about-us/");
-    const hasAboutPageLink = aboutLinkMatches.length > 0;
-    const aboutPaths = ["/about", "/about-us"] as const;
-    const aboutPageTexts = await Promise.all(aboutPaths.map((path) => fetchText(`${origin}${path}`)));
-    const reachableAboutPages = aboutPageTexts.filter((content) => Boolean(content)).length;
-    const combinedAboutText = aboutPageTexts.filter((content): content is string => Boolean(content)).join(" ");
-    const hasAboutPageContent = reachableAboutPages > 0 && combinedAboutText.replace(/\s+/g, " ").trim().length > 250;
-    const hasLeadershipSignals = /(founder|co-founder|ceo|leadership|team|our story|mission|executive)/i.test(
-      combinedAboutText,
-    );
-    const hasAuthorBioSignals = /(author|editor|linkedin|experience|years)/i.test(`${bodyText} ${combinedAboutText}`);
-    const hasReviewPlatformLink =
-      $('a[href*="g2.com"], a[href*="trustpilot.com"], a[href*="capterra.com"], a[href*="sourceforge.net"]').length > 0;
-
     const pageSpeed = await getPageSpeedMetrics(audit.targetUrl);
 
     const checksByKey: Record<string, CheckResult> = {
       "title-tag": {
         key: "title-tag",
         score:
-          title.length >= 20 && title.length <= 60 && titleHasKeyword
-            ? 95
-            : title.length >= 20 && title.length <= 60
-              ? 75
-              : 40,
-        details: `Current title: "${displayValue(title)}".\nTarget keyword(s): ${displayKeywordList}`,
+          title.length >= 50 &&
+          title.length <= 60 &&
+          titleHasKeyword
+            ? 92
+            : title.length >= 20 && title.length <= 72 && titleHasKeyword
+              ? 84
+              : title.length >= 20 && title.length <= 72
+                ? 68
+                : 42,
+        details: `Current title: "${displayValue(title)}" (${title.length} chars).\nTarget keyword(s): ${displayKeywordList}\nSemantic match (includes 2+ word stems when applicable): ${yesNo(titleHasKeyword)}. Full multi-word phrase match: ${yesNo(titleHasFullPhrase)}.`,
         recommendation:
           titleHasKeyword
-            ? "Keep keyword near the beginning and maintain this structure."
-            : "Include the target keyword naturally in the title and keep it 50-60 characters.",
+            ? titleHasFullPhrase
+              ? "Title length and phrasing look strong; keep monitoring CTR in Search Console."
+              : "Semantic coverage is fine; optionally work the full target phrase in if it stays natural."
+            : "Work the core topic (e.g. main 2-word stem) into the title and aim for roughly 50–60 characters.",
       },
       "meta-description": {
         key: "meta-description",
@@ -2154,34 +2168,23 @@ export async function runAuditJob(auditId: string) {
           metaHasKeyword &&
           exactKeywordInMetaCount <= 1
             ? 90
+            : description.length >= 120 &&
+                description.length <= 200 &&
+                metaHasKeyword &&
+                exactKeywordInMetaCount <= 1
+              ? 72
             : description.length > 0
-              ? 60
+              ? 58
               : 25,
-        details: `Meta description: "${displayValue(description)}".\nLength: ${description.length} characters.\nTarget keyword(s): ${displayKeywordList}\nAny variant present: ${yesNo(metaHasKeyword)}. Exact phrase uses: ${exactKeywordInMetaCount}.`,
+        details: `Meta description: "${displayValue(description)}".\nLength: ${description.length} characters (Google often truncates around ~155–160 on desktop; shorter on mobile).\nTarget keyword(s): ${displayKeywordList}\nAny variant present: ${yesNo(metaHasKeyword)}. Exact phrase uses: ${exactKeywordInMetaCount}.`,
         recommendation:
           !metaHasKeyword
             ? "Include the target keyword once in meta description and keep it natural."
             : description.length > 160
-            ? "Trim the description to around 150-160 characters and front-load value proposition."
+            ? "Shorten to ~150–160 characters and front-load the value proposition so the visible snippet is intentional."
             : description.length < 120
-              ? "Expand description to include value and keyword intent while staying below 160 chars."
+              ? "Expand description to include value and keyword intent while staying within a SERP-friendly length."
               : "Keep this meta description format and test copy variants.",
-      },
-      "meta-redundancy": {
-        key: "meta-redundancy",
-        score:
-          description.length === 0
-            ? 35
-            : metaAppearsStuffed
-              ? 45
-              : 88,
-        details: `Meta description: "${displayValue(description)}". Exact phrase repetition count: ${exactKeywordInMetaCount}. Stuffing detected: ${yesNo(
-          metaAppearsStuffed,
-        )}.`,
-        recommendation:
-          metaAppearsStuffed
-            ? "Reduce repeated keyword phrases in meta copy and prioritize one clear value proposition."
-            : "Keep meta copy natural and avoid repeated phrase patterns that feel stuffed.",
       },
       "h1-count": {
         key: "h1-count",
@@ -2202,34 +2205,33 @@ export async function runAuditJob(auditId: string) {
       "h2-keyword": {
         key: "h2-keyword",
         score: h2WithKeywordCount > 0 ? 88 : h2Count > 0 ? 48 : 35,
-        details: `H2 headings found: ${h2Count}.\nTarget keyword(s): ${displayKeywordList}\nH2 headings containing any keyword variant: ${h2WithKeywordCount}.`,
+        details: `H2 headings found: ${h2Count}.\nTarget keyword(s): ${displayKeywordList}\nH2 headings matching semantic stems (includes 2-word phrases from 3+ word targets): ${h2WithKeywordCount}.`,
         recommendation:
           h2WithKeywordCount > 0
-            ? "Keep at least one meaningful H2 aligned with the target keyword."
-            : "Include the target keyword naturally in at least one H2 heading.",
+            ? "Keep at least one meaningful H2 aligned with the target topic."
+            : "Include the target topic (or its main stems) naturally in at least one H2 heading.",
       },
       "heading-hierarchy": {
         key: "heading-hierarchy",
         score:
           h1Count === 1 &&
-          firstHeadingIsH1 &&
+          (!structuralHeading.found || firstHeadingIsH1) &&
           h2Count > 0 &&
-          (h3Count === 0 || h2Count >= Math.floor(h3Count / 2)) &&
-          footerH2Count === 0
+          (h3Count === 0 || h2Count >= Math.floor(h3Count / 2))
             ? 88
-            : 48,
-        details: `First heading tag: ${firstHeadingTag || "none"}. Heading counts: H1=${h1Count}, H2=${h2Count}, H3=${h3Count}, footer H2=${footerH2Count}. Issues: ${
+            : 52,
+        details: `First heading in primary content (main or outside nav/footer): ${firstHeadingTag || "none"}${structuralHeading.found ? "" : " (none detected outside chrome)"}. Heading counts: H1=${h1Count}, H2=${h2Count}, H3=${h3Count}, footer column headings as H2=${footerH2Count} (common and not scored as an error). Issues: ${
           headingHierarchyIssues.length > 0 ? headingHierarchyIssues.join("; ") : "none"
         }.`,
         recommendation:
-          "Use one H1 as the first heading on the page, then structure sections with clear H2/H3 hierarchy.",
+          "Use one H1 for the primary topic inside main content, then structure sections with clear H2/H3 hierarchy. Navigation markup before the hero is ignored.",
       },
       "keyword-usage": {
         key: "keyword-usage",
-        score: keywordCount >= 2 && keywordDensity < 1.5 && wordCount >= 700 ? 85 : 55,
-        details: `Word count: ${wordCount}.\nTarget keyword(s): ${displayKeywordList}\nExact occurrences (combined): ${keywordCount}. Density: ${keywordDensity.toFixed(2)}%.`,
+        score: 82,
+        details: `Primary content word count (main/article/body minus chrome): ${wordCount}.\nTarget keyword(s): ${displayKeywordList}\nExact phrase occurrences in that text: ${keywordCount} (${keywordDensity.toFixed(2)}% of words — informational only, not a ranking factor).`,
         recommendation:
-          "Increase topical depth and include relevant keyword variants in descriptive sections.",
+          "Use these counts for editorial context. Focus on clear headings and helpful copy rather than density targets.",
       },
       "structured-data": {
         key: "structured-data",
@@ -2245,16 +2247,20 @@ export async function runAuditJob(auditId: string) {
         score:
           schemaScripts.length === 0
             ? 35
-            : hasFaqSchema && hasOrganizationSchema && hasWebSiteSchema
-              ? 90
+            : hasOrganizationSchema && hasWebSiteSchema
+              ? hasFaqSchema
+                ? 90
+                : 86
               : hasOrganizationSchema || hasWebSiteSchema
                 ? 68
                 : 48,
-        details: `Schema types detected: ${parsedSchemaTypes.join(", ") || "none"}. FAQ: ${hasFaqSchema}, Organization: ${hasOrganizationSchema}, WebSite: ${hasWebSiteSchema}.`,
+        details: `Schema types detected: ${parsedSchemaTypes.join(", ") || "none"}. FAQPage: ${hasFaqSchema}, Organization: ${hasOrganizationSchema}, WebSite: ${hasWebSiteSchema}. Note: FAQ rich results in Google are limited to specific site categories; FAQ JSON-LD is optional semantic markup for others.`,
         recommendation:
-          hasFaqSchema && hasOrganizationSchema && hasWebSiteSchema
-            ? "Schema coverage is strong. Keep entities synchronized with visible page content."
-            : "Add/repair FAQPage, Organization, and WebSite schema where relevant to improve rich-result eligibility.",
+          hasOrganizationSchema && hasWebSiteSchema
+            ? hasFaqSchema
+              ? "Core entity schema is present. Keep JSON-LD aligned with visible content."
+              : "Organization/WebSite coverage is solid. Add FAQPage JSON-LD only if you want explicit FAQ semantics; it is not required for general SEO."
+            : "Add Organization and WebSite JSON-LD where relevant; add FAQPage only when it mirrors visible FAQ content.",
       },
       canonical: {
         key: "canonical",
@@ -2376,18 +2382,24 @@ export async function runAuditJob(auditId: string) {
         score:
           robotsText && robotsDeclaresSitemap && robotsAllowsGoogle && robotsSitemapUrls.length > 0
             ? 88
-            : robotsText
-              ? 60
-              : 30,
+            : robotsText && robotsAllowsGoogle && reachableRootSitemaps.length > 0 && !robotsDeclaresSitemap
+              ? 78
+              : robotsText && robotsAllowsGoogle
+                ? 72
+                : robotsText
+                  ? 55
+                  : 30,
         details: robotsText
-          ? `robots.txt URL: ${origin}/robots.txt. Sitemap declared: ${yesNo(
+          ? `robots.txt URL: ${origin}/robots.txt. Sitemap line present: ${yesNo(
               robotsDeclaresSitemap,
-            )}. Sitemap URLs in robots: ${formatList(robotsSitemapUrls)}. Googlebot broadly allowed: ${yesNo(
-              robotsAllowsGoogle,
-            )}.`
+            )}. Reachable sitemap.xml on host: ${yesNo(reachableRootSitemaps.length > 0)}. Sitemap URLs in robots: ${formatList(
+              robotsSitemapUrls,
+            )}. Googlebot broadly allowed: ${yesNo(robotsAllowsGoogle)}.`
           : `robots.txt not detected at ${origin}/robots.txt.`,
         recommendation:
-          "Declare explicit sitemap URL(s) in robots.txt and avoid blocking key public pages unintentionally.",
+          reachableRootSitemaps.length > 0 && !robotsDeclaresSitemap
+            ? "Listing sitemaps in robots.txt is optional when sitemaps are submitted in Search Console; add a sitemap line if you want a single crawl hint for all bots."
+            : "Keep crawl directives intentional; avoid blocking important public URLs.",
       },
       "robots-ai-policy": {
         key: "robots-ai-policy",
@@ -2445,10 +2457,14 @@ export async function runAuditJob(auditId: string) {
         score:
           images.length === 0
             ? 80
-            : clamp(100 - Math.round(((missingAlt + imageWithGenericAlt) / images.length) * 100), 35, 98),
-        details: `Images: ${images.length}. Missing alt text: ${missingAlt}. Generic alt text: ${imageWithGenericAlt}.`,
+            : clamp(
+                100 - Math.round(((missingAltAttribute + imageWithGenericAlt) / images.length) * 100),
+                35,
+                98,
+              ),
+        details: `Images: ${images.length}. Missing alt attribute (invalid): ${missingAltAttribute}. Decorative alt=\"\" (valid): ${decorativeAltCount}. Generic placeholder alt text: ${imageWithGenericAlt}.`,
         recommendation:
-          "Add contextual alt text to meaningful images and decorative alt=\"\" where appropriate.",
+          "Ensure every <img> has an alt attribute; use alt=\"\" for decorative images and descriptive text for meaningful ones.",
       },
       "image-performance": {
         key: "image-performance",
@@ -2552,44 +2568,19 @@ export async function runAuditJob(auditId: string) {
         recommendation:
           "Support core landing page with additional crawlable pages for related intents and long-tail queries.",
       },
-      "eeat-signals": {
-        key: "eeat-signals",
-        score:
-          hasTestimonials && (hasAboutPageLink || hasAboutPageContent) && (hasLeadershipSignals || hasAuthorBioSignals)
-            ? 88
-            : (hasTestimonials || hasReviewPlatformLink || hasAboutPageLink || hasAboutPageContent) && wordCount >= 600
-              ? 72
-              : 52,
-        details: `Signals found - testimonials/case studies: ${hasTestimonials}, about link on page: ${hasAboutPageLink}, reachable about pages: ${reachableAboutPages}, leadership/author signals: ${
-          hasLeadershipSignals || hasAuthorBioSignals
-        }, review platform link: ${hasReviewPlatformLink}. About link matches: ${formatList(aboutLinkMatches, "none")}.`,
-        recommendation:
-          hasTestimonials && (hasAboutPageLink || hasAboutPageContent)
-            ? "E-E-A-T baseline is present. Strengthen it further with richer proof points (named outcomes, expert profiles, and third-party validation)."
-            : "Add clearer trust signals only where missing: testimonials/case studies, visible team/about details, and expert credibility cues.",
-      },
-      "author-credibility": {
-        key: "author-credibility",
-        score: hasNamedAuthor || hasAuthorBioSignals ? 84 : hasAboutPageLink || hasAboutPageContent ? 68 : 40,
-        details: `Named author/team signal detected: ${hasNamedAuthor || hasAuthorBioSignals}. About page linked: ${hasAboutPageLink}. About link matches: ${formatList(
-          aboutLinkMatches,
-          "none",
-        )}. Reachable about page content: ${hasAboutPageContent}.`,
-        recommendation:
-          hasNamedAuthor || hasAuthorBioSignals
-            ? "Maintain visible expert attribution and keep author/team credentials up to date."
-            : "Add named experts/authors with profile details and stronger team transparency.",
-      },
       pagespeed: {
         key: "pagespeed",
-        score: pageSpeed?.score ?? 58,
+        score:
+          pageSpeed?.score != null ? Math.max(38, pageSpeed.score) : 86,
         details: pageSpeed
           ? `PageSpeed score: ${pageSpeed.score}/100. LCP: ${pageSpeed.lcp}, CLS: ${pageSpeed.cls}, INP: ${pageSpeed.inp}.`
-          : "PageSpeed API not configured, using fallback scoring.",
+          : "PageSpeed Insights was not run — PAGESPEED_API_KEY is not set, so Core Web Vitals were not measured for this page.",
         recommendation:
           pageSpeed && pageSpeed.score !== null && pageSpeed.score >= 80
             ? "Maintain current performance and keep monitoring core vitals."
-            : "Optimize LCP assets, reduce layout shifts, and improve interaction responsiveness.",
+            : pageSpeed
+              ? "Optimize LCP assets, reduce layout shifts, and improve interaction responsiveness."
+              : "Configure PAGESPEED_API_KEY for TrafficLift to measure real CWV for audited URLs.",
       },
       "duplicate-metadata": {
         key: "duplicate-metadata",
@@ -2611,9 +2602,9 @@ export async function runAuditJob(auditId: string) {
       },
       "safe-browsing": {
         key: "safe-browsing",
-        score: !safeBrowsing.configured ? 60 : safeBrowsing.error ? 55 : safeBrowsing.flagged ? 15 : 95,
+        score: !safeBrowsing.configured ? 86 : safeBrowsing.error ? 55 : safeBrowsing.flagged ? 15 : 95,
         details: !safeBrowsing.configured
-          ? "Google Safe Browsing API key is not configured."
+          ? "Google Safe Browsing was not queried — GOOGLE_SAFE_BROWSING_API_KEY is not set."
           : safeBrowsing.error
             ? `Safe Browsing check failed: ${safeBrowsing.error}.`
             : `Safe Browsing flagged URL: ${yesNo(safeBrowsing.flagged)}. Threat types: ${formatList(
@@ -2621,7 +2612,7 @@ export async function runAuditJob(auditId: string) {
                 "none",
               )}.`,
         recommendation: !safeBrowsing.configured
-          ? "Add GOOGLE_SAFE_BROWSING_API_KEY to enable malware/phishing risk checks."
+          ? "Add GOOGLE_SAFE_BROWSING_API_KEY if you want automated malware/phishing checks in reports."
           : safeBrowsing.flagged
             ? "Investigate and remediate malware/phishing risk before indexing and promotion."
             : "No threat match found. Keep routine security monitoring in place.",
@@ -2630,10 +2621,10 @@ export async function runAuditJob(auditId: string) {
 
     const effectivePriorityByKey: Record<string, "critical" | "high" | "medium" | "low"> = {
       canonical: "critical",
-      pagespeed: (checksByKey.pagespeed?.score ?? 58) >= 60 ? "medium" : "high",
-      "title-tag": titleHasKeyword ? "high" : "critical",
-      "h1-count": h1ContainsKeyword ? "high" : "critical",
-      "safe-browsing": safeBrowsing.flagged ? "critical" : "high",
+      pagespeed: pageSpeed?.score != null ? ((checksByKey.pagespeed?.score ?? 58) >= 60 ? "medium" : "high") : "low",
+      "title-tag": "high",
+      "h1-count": "high",
+      "safe-browsing": !safeBrowsing.configured ? "low" : safeBrowsing.flagged ? "critical" : "high",
       "indexability-controls": hasNoindex ? "critical" : "high",
       "http-status-chain": pageProbe.hops >= 3 || pageProbe.usedTemporaryRedirect ? "high" : "medium",
       "render-blocking-resources": renderBlockingScripts.length >= 3 ? "critical" : "high",

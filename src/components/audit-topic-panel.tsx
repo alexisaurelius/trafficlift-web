@@ -26,8 +26,6 @@ function buildPlainWhy(
   const titleMatch = details.match(/Current title:\s*"([^"]+)"/i);
   const h1Match = details.match(/Current H1:\s*"([^"]+)"/i);
   const psMatch = details.match(/PageSpeed score:\s*(\d+)/i);
-  const headingCountsMatch = details.match(/Heading counts:\s*H1=(\d+),\s*H2=(\d+),\s*H3=(\d+),\s*footer H2=(\d+)/i);
-  const metaRepeatMatch = details.match(/Exact phrase repetition count:\s*(\d+)/i);
   const keywordLabel = keywordCount > 1 ? "keywords" : "keyword";
   const missingVerb = keywordCount > 1 ? "are" : "is";
   const detailsSummary = details
@@ -46,8 +44,8 @@ function buildPlainWhy(
   switch (check.key) {
     case "title-tag":
       return titleMatch
-        ? `The title is one of Google's strongest relevance signals. Current title "${titleMatch[1]}" does not include ${keywordPhrase}, so this page can miss that query.`
-        : `The title should clearly mention ${keywordPhrase} so search engines can map the page to that intent.`;
+        ? `The title is a strong relevance signal. Current title "${titleMatch[1]}" is evaluated against your target stems/phrases (not only exact-match).`
+        : `The title should reflect the target topic so search engines can map the page to that intent.`;
     case "h1-count":
       return h1Match
         ? `The H1 confirms page topic for both users and search engines. Current H1 "${h1Match[1]}" does not include ${keywordPhrase}.`
@@ -57,29 +55,14 @@ function buildPlainWhy(
     case "h2-keyword":
       return `At least one H2 containing ${keywordPhrase} helps reinforce topical relevance throughout the page structure.`;
     case "heading-hierarchy": {
-      if (headingCountsMatch) {
-        const footerH2 = Number(headingCountsMatch[4]);
-        if (footerH2 > 0) {
-          return `H2 headings were detected inside the footer (${footerH2}), which dilutes section structure and can confuse heading semantics.`;
-        }
-      }
-      return "Heading order is inconsistent, so search engines get weaker section-level signals about page structure.";
-    }
-    case "meta-redundancy": {
-      if (metaRepeatMatch) {
-        const repeats = Number(metaRepeatMatch[1]);
-        if (repeats > 1) {
-          return `The exact target phrase is repeated ${repeats} times in the meta description, which can look stuffed and lower snippet quality.`;
-        }
-      }
-      return "The meta description copy pattern still looks repetitive, so it should be rewritten to sound more natural to users.";
+      return "Heading order is evaluated in primary content (main or outside nav/footer), not in the global document order.";
     }
     case "pagespeed":
       if (psMatch) {
         const score = Number(psMatch[1]);
         return `Speed directly affects user drop-off and ranking signals. Current PageSpeed score is ${score}, which indicates optimization is still needed.`;
       }
-      return "Page performance impacts both rankings and conversion. Slow experience can hurt visibility.";
+      return "PageSpeed was not run for this report (API not configured), so this is not a measured performance verdict for the page.";
     case "structured-data":
       return "Broken or missing structured data can prevent rich result eligibility and reduce SERP visibility.";
     case "schema-coverage":
@@ -92,8 +75,6 @@ function buildPlainWhy(
       return "If key URLs are missing from sitemap coverage, crawling and indexing priority can be weaker.";
     case "robots":
       return "robots.txt controls crawl access. Incorrect directives can block or weaken discovery of important pages.";
-    case "eeat-signals":
-      return "Trust signals (expertise, social proof, clear company identity) influence user confidence and quality perception.";
     default:
       if (check.status === "pass") {
         return detailsSummary || "This item passed based on the measured audit signals for this page.";
@@ -125,7 +106,6 @@ const TOPICS: TopicConfig[] = [
     keys: [
       "title-tag",
       "meta-description",
-      "meta-redundancy",
       "h1-count",
       "h2-keyword",
       "heading-hierarchy",
@@ -138,7 +118,7 @@ const TOPICS: TopicConfig[] = [
   {
     id: "authority",
     label: "Authority",
-    keys: ["site-architecture", "eeat-signals", "author-credibility"],
+    keys: ["site-architecture"],
     icon: ShieldCheck,
   },
   {

@@ -10,7 +10,6 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
   "On-Page": [
     "title-tag",
     "meta-description",
-    "meta-redundancy",
     "h1-count",
     "h2-keyword",
     "heading-hierarchy",
@@ -52,8 +51,6 @@ const CATEGORY_KEY_MAP: Record<Category, string[]> = {
   ],
   Authority: [
     "site-architecture",
-    "eeat-signals",
-    "author-credibility",
     "support-objections",
     "faq-depth",
   ],
@@ -74,16 +71,16 @@ const TERM_HELP_BY_KEY: Record<string, string> = {
   hreflang: "Hreflang tells Google which language/region version of a page should be shown to users.",
   canonical: "Canonical URL tells search engines which page version is the primary one to index.",
   "canonical-consistency": "Checks whether canonical tags match the page URL and site structure consistently.",
-  "eeat-signals":
-    "E-E-A-T means Experience, Expertise, Authoritativeness, and Trustworthiness signals on your site.",
   "schema-coverage": "Schema markup is structured data that helps search engines understand your page content.",
   "structured-data": "Structured data (JSON-LD) enables enhanced search results like FAQs and rich snippets.",
   "indexability-controls": "Checks noindex/nofollow directives from meta robots and response headers.",
   "http-status-chain": "Tracks redirect hops and final HTTP status for the audited URL.",
-  pagespeed: "Core Web Vitals measure real loading and interaction speed (LCP, CLS, INP).",
+  pagespeed:
+    "When the PageSpeed API is configured, this reflects Core Web Vitals (LCP, CLS, INP) for the audited URL.",
   robots: "robots.txt controls which parts of your site search engines can crawl.",
   "robots-ai-policy": "Defines whether AI crawlers are allowed or blocked from your content.",
-  "safe-browsing": "Google Safe Browsing flags potential malware or phishing risks.",
+  "safe-browsing":
+    "When configured, Google Safe Browsing flags potential malware or phishing risks for the audited URL.",
   "twitter-card-coverage": "Twitter card tags control how your page looks when shared on social media.",
   "social-tags": "Open Graph tags control page title/description/image previews on social platforms.",
   "internal-links-health": "Checks whether linked internal pages return healthy statuses.",

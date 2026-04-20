@@ -108,6 +108,23 @@ export function matchesAnyKeywordEquivalent(content: string, keywords: string[])
   return keywords.some((keyword) => isKeywordEquivalentMatch(content, keyword));
 }
 
+/** Adds consecutive 2-word phrases from 3+ token targets so "customer service software" matches "customer service" in headings. */
+export function expandKeywordsForSemanticMatch(rawKeywords: string[]): string[] {
+  const out = new Set<string>();
+  for (const k of rawKeywords) {
+    const norm = normalizeKeywordText(k);
+    if (!norm) continue;
+    out.add(norm);
+    const tokens = tokenize(k);
+    if (tokens.length >= 3) {
+      for (let i = 0; i <= tokens.length - 2; i += 1) {
+        out.add(`${tokens[i]} ${tokens[i + 1]}`);
+      }
+    }
+  }
+  return [...out];
+}
+
 export function countExactKeywordMatches(content: string, keywords: string[]) {
   const normalizedContent = normalizeKeywordText(content);
   if (!normalizedContent || keywords.length === 0) return 0;
