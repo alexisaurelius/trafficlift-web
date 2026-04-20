@@ -3,7 +3,8 @@ import { runAuditJob } from "@/lib/audit-engine";
 import { AUDIT_QUEUE_NAME } from "@/lib/audit-queue";
 import { getRedisConnection } from "@/lib/redis";
 
-const concurrency = Number(process.env.AUDIT_WORKER_CONCURRENCY ?? 25);
+/** Default 5: high concurrency exhausts small Postgres pools and causes Prisma transaction maxWait timeouts. */
+const concurrency = Number(process.env.AUDIT_WORKER_CONCURRENCY ?? 5);
 const rateLimitPerMinute = Number(process.env.AUDIT_WORKER_RATE_LIMIT_PER_MIN ?? 120);
 
 const worker = new Worker(

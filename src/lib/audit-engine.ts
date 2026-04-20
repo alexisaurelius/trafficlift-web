@@ -16,6 +16,12 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+/** Avoid "Unable to start a transaction in the given time" when the pool is busy (many concurrent workers). */
+const AUDIT_COMPLETION_TRANSACTION = {
+  maxWait: 30_000,
+  timeout: 60_000,
+} as const;
+
 type CheckResult = {
   key: string;
   score: number;
@@ -1478,35 +1484,38 @@ export async function runAuditJob(auditId: string) {
         scoreBreakdown,
       );
 
-      await prisma.$transaction([
-        prisma.auditCheck.deleteMany({ where: { auditId } }),
-        prisma.auditCheck.createMany({
-          data: checksPayload.map((check) => ({
-            auditId,
-            key: check.key,
-            title: check.title,
-            status: check.status,
-            priority: check.priority,
-            details: check.details,
-            recommendation: check.recommendation,
-          })),
-        }),
-        prisma.audit.update({
-          where: { id: auditId },
-          data: {
-            status: AuditStatus.COMPLETED,
-            score,
-            completedAt: new Date(),
-            reportMarkdown,
-            summary:
-              score >= 85
-                ? "Strong CRO baseline with selective optimization opportunities."
-                : score >= 65
-                  ? "CRO performance is mixed. Address high-priority friction first."
-                  : "Critical CRO issues detected. Prioritize conversion blockers immediately.",
-          },
-        }),
-      ]);
+      await prisma.$transaction(
+        async (tx) => {
+          await tx.auditCheck.deleteMany({ where: { auditId } });
+          await tx.auditCheck.createMany({
+            data: checksPayload.map((check) => ({
+              auditId,
+              key: check.key,
+              title: check.title,
+              status: check.status,
+              priority: check.priority,
+              details: check.details,
+              recommendation: check.recommendation,
+            })),
+          });
+          await tx.audit.update({
+            where: { id: auditId },
+            data: {
+              status: AuditStatus.COMPLETED,
+              score,
+              completedAt: new Date(),
+              reportMarkdown,
+              summary:
+                score >= 85
+                  ? "Strong CRO baseline with selective optimization opportunities."
+                  : score >= 65
+                    ? "CRO performance is mixed. Address high-priority friction first."
+                    : "Critical CRO issues detected. Prioritize conversion blockers immediately.",
+            },
+          });
+        },
+        AUDIT_COMPLETION_TRANSACTION,
+      );
       return;
     }
     const $ = load(html);
@@ -2382,27 +2391,30 @@ export async function runAuditJob(auditId: string) {
       })),
     );
 
-    await prisma.$transaction([
-      prisma.auditCheck.deleteMany({ where: { auditId } }),
-      prisma.auditCheck.createMany({
-        data: checksPayload,
-      }),
-      prisma.audit.update({
-        where: { id: auditId },
-        data: {
-          status: AuditStatus.COMPLETED,
-          score,
-          completedAt: new Date(),
-          reportMarkdown,
-          summary:
-            score >= 80
-              ? "Strong SEO baseline with a few opportunities."
-              : score >= 60
-                ? "SEO performance is mixed. Address high-priority issues first."
-                : "Core SEO issues detected. Prioritize critical fixes first.",
-        },
-      }),
-    ]);
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.auditCheck.deleteMany({ where: { auditId } });
+        await tx.auditCheck.createMany({
+          data: checksPayload,
+        });
+        await tx.audit.update({
+          where: { id: auditId },
+          data: {
+            status: AuditStatus.COMPLETED,
+            score,
+            completedAt: new Date(),
+            reportMarkdown,
+            summary:
+              score >= 80
+                ? "Strong SEO baseline with a few opportunities."
+                : score >= 60
+                  ? "SEO performance is mixed. Address high-priority issues first."
+                  : "Core SEO issues detected. Prioritize critical fixes first.",
+          },
+        });
+      },
+      AUDIT_COMPLETION_TRANSACTION,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown audit error";
     await prisma.audit.update({

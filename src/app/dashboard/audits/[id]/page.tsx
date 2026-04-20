@@ -53,6 +53,19 @@ function priorityRank(priority: string) {
   return 1;
 }
 
+function croPenaltyForStatus(priority: string, status: string) {
+  const basePenaltyByPriority: Record<string, number> = {
+    critical: 20,
+    high: 10,
+    medium: 5,
+    low: 2,
+  };
+  const base = basePenaltyByPriority[priority] ?? 2;
+  if (status === "fail") return base;
+  if (status === "warn") return base / 2;
+  return 0;
+}
+
 async function fetchLiveKeywordCoverage(targetUrl: string, keywordCandidates: string[]) {
   try {
     const response = await fetch(targetUrl, {
@@ -105,7 +118,7 @@ export default async function AuditDetailsPage({
   const score = audit.score ?? 0;
   const checksWithEffectivePriority = audit.checks.filter((check) => activeCheckKeys.has(check.key)).map((check) => {
     let priority = effectivePriorityForCheck(check);
-    let status = check.status === "pass" ? "pass" : "fail";
+    let status: "pass" | "fail" | "warn" = check.status === "warn" ? "warn" : check.status === "pass" ? "pass" : "fail";
     let details = check.details;
     let recommendation = check.recommendation;
 
@@ -132,6 +145,7 @@ export default async function AuditDetailsPage({
     };
   });
   const passChecks = checksWithEffectivePriority.filter((check) => check.status === "pass");
+  const warnChecks = checksWithEffectivePriority.filter((check) => check.status === "warn");
   const failChecks = checksWithEffectivePriority.filter((check) => check.status === "fail");
   const topCroRisks =
     auditType === "cro"
@@ -149,6 +163,18 @@ export default async function AuditDetailsPage({
       : 0;
   const scoreContext = auditType === "cro" ? getCroScoreContext(score) : getScoreContext(score);
   const scoreColor = score >= 80 ? "#22c55e" : score >= 60 ? "#f59e0b" : "#ef4444";
+  const croScoreDeductions =
+    auditType === "cro"
+      ? checksWithEffectivePriority
+          .map((check) => ({
+            title: check.title,
+            priority: check.priority,
+            status: check.status,
+            penalty: croPenaltyForStatus(check.priority, check.status),
+          }))
+          .filter((entry) => entry.penalty > 0)
+      : [];
+  const croTotalDeduction = croScoreDeductions.reduce((sum, entry) => sum + entry.penalty, 0);
   const auditedOn = audit.completedAt ?? audit.updatedAt ?? audit.createdAt;
 
   return (
@@ -220,7 +246,32 @@ export default async function AuditDetailsPage({
               <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-700">
                 {failChecks.length} Fails
               </span>
+              {auditType === "cro" ? (
+                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-700">
+                  {warnChecks.length} Warns
+                </span>
+              ) : null}
             </div>
+            {auditType === "cro" ? (
+              <details className="mt-3 rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_10%,white)] bg-[var(--surface-container-low)] px-3 py-2 text-sm text-[var(--on-surface)]/78">
+                <summary className="cursor-pointer font-semibold text-[var(--primary)]">Score formula and deductions</summary>
+                <p className="mt-2">
+                  Score formula: 100 - deductions. FAIL penalties = critical:20, high:10, medium:5, low:2. WARN = 50% of fail penalty.
+                </p>
+                <p className="mt-1 font-semibold">Total deductions: {croTotalDeduction}</p>
+                {croScoreDeductions.length > 0 ? (
+                  <ul className="mt-2 space-y-1">
+                    {croScoreDeductions.map((entry) => (
+                      <li key={`${entry.title}-${entry.priority}-${entry.status}`} className="text-xs">
+                        {entry.title} ({entry.priority.toUpperCase()} {entry.status.toUpperCase()}): -{entry.penalty}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-xs">No deductions applied.</p>
+                )}
+              </details>
+            ) : null}
             <p className="mt-2 text-sm text-[var(--on-surface)]/70">
               {failChecks.length > 0
                 ? `${failChecks.length} issue${failChecks.length > 1 ? "s are" : " is"} likely hurting ${
