@@ -5,6 +5,9 @@ import { requireUserRecord } from "@/lib/auth-user";
 import { consumeCredit, canConsumeCredit } from "@/lib/credits";
 import { runAuditJob } from "@/lib/audit-engine";
 import { enqueueAuditJob, isAuditQueueConfigured } from "@/lib/audit-queue";
+
+/** Allow inline audit completion on serverless when Redis worker is not used (SEO/CRO jobs can exceed default 10s). */
+export const maxDuration = 300;
 import { formatKeywordCandidatesAsQuotedList, parseKeywordCandidates } from "@/lib/keyword-match";
 import { CRO_AUDIT_KEYWORD } from "@/lib/audit-mode";
 import { prisma } from "@/lib/prisma";
@@ -115,9 +118,7 @@ export async function POST(req: Request) {
     if (isAuditQueueConfigured()) {
       await enqueueAuditJob(audit.id);
     } else {
-      runAuditJob(audit.id).catch(() => {
-        // error is persisted in runAuditJob
-      });
+      await runAuditJob(audit.id);
     }
 
     return NextResponse.json({ auditId: audit.id, status: audit.status }, { status: 201 });

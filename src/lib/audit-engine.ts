@@ -83,17 +83,39 @@ async function fetchWithRedirectTrace(
 ): Promise<RedirectProbe> {
   const includeBody = options?.includeBody ?? false;
   const maxRedirects = options?.maxRedirects ?? 6;
+  const hopTimeoutMs = Number(process.env.AUDIT_FETCH_TIMEOUT_MS ?? 45_000);
   const chain = [url];
   const visited = new Set<string>([url]);
   let current = url;
   let usedTemporaryRedirect = false;
 
+  const fetchWithTimeout = async (fetchUrl: string) => {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), hopTimeoutMs);
+    try {
+      return await fetch(fetchUrl, {
+        headers: { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" },
+        cache: "no-store",
+        redirect: "manual",
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(tid);
+    }
+  };
+
+  const readBodyWithCap = async (response: Response) => {
+    const text = await Promise.race([
+      response.text(),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`Response body exceeded ${hopTimeoutMs}ms`)), hopTimeoutMs);
+      }),
+    ]);
+    return text;
+  };
+
   for (let i = 0; i <= maxRedirects; i += 1) {
-    const response = await fetch(current, {
-      headers: { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" },
-      cache: "no-store",
-      redirect: "manual",
-    });
+    const response = await fetchWithTimeout(current);
     const location = response.headers.get("location");
     const isRedirect = redirectStatus(response.status) && Boolean(location);
 
@@ -107,7 +129,7 @@ async function fetchWithRedirectTrace(
         loopDetected: false,
         chain,
         xRobotsTag: response.headers.get("x-robots-tag") ?? "",
-        html: includeBody ? await response.text() : null,
+        html: includeBody ? await readBodyWithCap(response) : null,
       };
     }
 
@@ -161,12 +183,22 @@ async function fetchWithRedirectTrace(
 }
 
 async function fetchText(url: string) {
-  const response = await fetch(url, {
-    headers: { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" },
-    cache: "no-store",
-  });
-  if (!response.ok) return null;
-  return response.text();
+  const ms = Number(process.env.AUDIT_FETCH_TIMEOUT_MS ?? 45_000);
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), ms);
+  try {
+    const response = await fetch(url, {
+      headers: { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    return await response.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(tid);
+  }
 }
 
 function hasStrongCacheControl(cacheControlHeader: string) {
@@ -2673,7 +2705,11 @@ export async function runAuditJob(auditId: string) {
       }),
     ]);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown audit error";
+    let message = error instanceof Error ? error.message : "Unknown audit error";
+    if (error instanceof Error && /abort|timed out|timeout/i.test(`${error.name} ${message}`)) {
+      const ms = process.env.AUDIT_FETCH_TIMEOUT_MS ?? "45000";
+      message = `Target fetch timed out or was aborted (limit ${ms}ms per hop). Try again or audit a faster URL.`;
+    }
     await prisma.audit.update({
       where: { id: auditId },
       data: {

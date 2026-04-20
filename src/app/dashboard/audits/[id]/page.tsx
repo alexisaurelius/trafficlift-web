@@ -111,12 +111,15 @@ export default async function AuditDetailsPage({
   const auditType = auditTypeFromKeyword(audit.targetKeyword);
   const liveKeywordCoverage =
     auditType === "seo" ? await fetchLiveKeywordCoverage(audit.targetUrl, fallbackCandidates) : null;
-  const activeCheckKeys = new Set(
-    (auditType === "cro" ? CRO_AUDIT_CHECKLIST : AUDIT_CHECKLIST).map((check) => check.key),
-  );
+  const checklistTemplate = auditType === "cro" ? CRO_AUDIT_CHECKLIST : AUDIT_CHECKLIST;
+  const activeCheckKeys = new Set(checklistTemplate.map((check) => check.key));
+
+  const checksMatchingTemplate = audit.checks.filter((check) => activeCheckKeys.has(check.key));
+  /* If checklist keys changed between deploys, filtering can hide every row — fall back to stored checks. */
+  const checksForReport = checksMatchingTemplate.length > 0 ? checksMatchingTemplate : audit.checks;
 
   const score = audit.score ?? 0;
-  const checksWithEffectivePriority = audit.checks.filter((check) => activeCheckKeys.has(check.key)).map((check) => {
+  const checksWithEffectivePriority = checksForReport.map((check) => {
     let priority = effectivePriorityForCheck(check);
     let status: "pass" | "fail" | "warn" = check.status === "warn" ? "warn" : check.status === "pass" ? "pass" : "fail";
     let details = check.details;
@@ -179,6 +182,26 @@ export default async function AuditDetailsPage({
 
   return (
     <section className="space-y-6">
+      {(audit.status === "QUEUED" || audit.status === "RUNNING") && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-semibold">Audit in progress</p>
+          <p className="mt-1">
+            Individual checks and the executive report are written when processing completes. Refresh in a few seconds — large sites or slow responses can take several minutes.
+          </p>
+        </div>
+      )}
+      {audit.status === "FAILED" && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+          <p className="font-semibold">Audit failed</p>
+          <p className="mt-1 whitespace-pre-wrap">{audit.errorMessage ?? "Unknown error. Try again or use a different URL."}</p>
+        </div>
+      )}
+      {audit.status === "COMPLETED" && checksWithEffectivePriority.length === 0 && (
+        <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 text-sm text-rose-900">
+          <p className="font-semibold">No check rows stored</p>
+          <p className="mt-1">Re-run the audit. If this persists, the job may have been interrupted before saving results.</p>
+        </div>
+      )}
       <header className="rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-6 shadow-[0_12px_40px_rgba(0,22,57,0.06)]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link href={auditType === "cro" ? "/dashboard/cro" : "/dashboard"} className="text-sm font-semibold text-[var(--primary)]">

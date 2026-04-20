@@ -34,10 +34,11 @@ function estimateProgress(audit: AuditItem) {
   const ageSeconds = Math.max(0, Math.floor((Date.now() - new Date(audit.createdAt).getTime()) / 1000));
 
   if (audit.status === "QUEUED") {
-    return Math.min(35, 12 + ageSeconds * 2);
+    return Math.min(40, 12 + ageSeconds * 2);
   }
 
-  return Math.min(92, 35 + ageSeconds * 4);
+  /* RUNNING: never cap at a false "almost done" — approaches 99% slowly so it does not look stuck at 92%. */
+  return Math.min(99, 40 + ageSeconds * 3);
 }
 
 function scoreBarColor(score: number | null) {
@@ -179,7 +180,9 @@ export function DashboardAuditsPanel({
                     <div className="mt-1 flex items-center justify-between gap-3">
                       <p className="text-xs text-[var(--on-surface)]/65">
                         {isActive
-                          ? `Processing... ${progress}%`
+                          ? progress >= 98
+                            ? "Still processing… (large pages or slow targets can take a few minutes)"
+                            : `Processing… ~${progress}%`
                           : audit.status === "FAILED"
                             ? (audit.errorMessage ?? "Audit failed.")
                             : `Score strength: ${completedPercent}%`}
