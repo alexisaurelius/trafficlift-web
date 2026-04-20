@@ -48,21 +48,21 @@ function buildPlainWhy(
   switch (check.key) {
     case "title-tag":
       return titleMatch
-        ? `The title is a strong relevance signal. Current title "${titleMatch[1]}" is evaluated against your target stems/phrases (not only exact-match).`
-        : `The title should reflect the target topic so search engines can map the page to that intent.`;
+        ? `The title must include every target phrase you entered (exact substring match after normalization). Current title "${titleMatch[1]}" is checked against that bar.`
+        : `The title should include all user-entered keyword phrases as contiguous text (see details).`;
     case "h1-count": {
-      const variantYes = /Semantic\/variant match in H1:\s*yes/i.test(details);
-      if (h1Match && variantYes) {
-        return `The H1 "${h1Match[1]}" matches your target topic (semantic / variant match), which supports topical clarity.`;
+      const exactYes = /Exact match \(all phrases in H1, normalized\):\s*yes/i.test(details);
+      if (h1Match && exactYes) {
+        return `The H1 "${h1Match[1]}" includes all target phrases (exact match), which supports topical alignment.`;
       }
       return h1Match
-        ? `The H1 "${h1Match[1]}" may not align with every exact quoted target phrase; compare against your keyword list in the details below.`
+        ? `The H1 "${h1Match[1]}" is missing at least one user-entered phrase, or there is more than one H1.`
         : `A missing or misaligned H1 weakens topical clarity for the target ${keywordLabel} ${keywordPhrase}.`;
     }
     case "meta-description":
       return `Your meta description is used as search snippet context. If ${keywordPhrase} ${missingVerb} missing, relevance and click-through can drop for that query.`;
     case "h2-keyword":
-      return `At least one H2 containing ${keywordPhrase} helps reinforce topical relevance throughout the page structure.`;
+      return `At least one H2 must contain every user-entered keyword phrase (same exact-match rule as the title and H1).`;
     case "heading-hierarchy": {
       return "Heading order is evaluated in primary content (main or outside nav/footer), not in the global document order.";
     }

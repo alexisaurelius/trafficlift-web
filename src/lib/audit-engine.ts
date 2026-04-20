@@ -7,10 +7,9 @@ import { CRO_AUDIT_CHECKLIST } from "@/lib/cro-checklist";
 import { isCroAuditKeyword } from "@/lib/audit-mode";
 import {
   countExactKeywordMatches,
-  expandKeywordsForSemanticMatch,
   formatKeywordCandidatesAsQuotedList,
-  matchesAnyKeywordEquivalent,
   parseKeywordCandidates,
+  textContainsAllExactKeywords,
 } from "@/lib/keyword-match";
 
 function clamp(n: number, min: number, max: number) {
@@ -1935,17 +1934,17 @@ export async function runAuditJob(auditId: string) {
     const canonicalTargetNoindex = canonicalProbe
       ? hasNoindexDirective(`${canonicalProbe.xRobotsTag} ${canonicalTargetMetaRobots}`)
       : false;
-    const semanticKeywords = expandKeywordsForSemanticMatch(activeKeywords);
-    const titleHasKeyword = matchesAnyKeywordEquivalent(title, semanticKeywords);
-    const titleHasFullPhrase = matchesAnyKeywordEquivalent(title, activeKeywords);
-    const metaHasKeyword = matchesAnyKeywordEquivalent(description, semanticKeywords);
+    const titleHasExactKeywords = textContainsAllExactKeywords(title, activeKeywords);
+    const metaHasKeyword = textContainsAllExactKeywords(description, activeKeywords);
     const h1Count = $("h1").length;
     const h1Text = $("h1").first().text().trim();
-    const h1ContainsKeyword = matchesAnyKeywordEquivalent(h1Text, semanticKeywords);
+    const h1ContainsExactKeywords = textContainsAllExactKeywords(h1Text, activeKeywords);
     const h2Count = $("h2").length;
-    const h2WithKeywordCount = $("h2")
-      .toArray()
-      .filter((el) => matchesAnyKeywordEquivalent($(el).text(), semanticKeywords)).length;
+    const h2Nodes = $("h2").toArray();
+    const h2WithAllExactPhrasesCount = h2Nodes.filter((el) =>
+      textContainsAllExactKeywords($(el).text(), activeKeywords),
+    ).length;
+    const hasH2WithAllExactKeywords = h2WithAllExactPhrasesCount > 0;
     const h3Count = $("h3").length;
     const footerH2Count = $("footer h2").length;
     const structuralHeading = firstStructuralHeadingTag($);
@@ -2184,20 +2183,17 @@ export async function runAuditJob(auditId: string) {
         score:
           title.length >= 50 &&
           title.length <= 60 &&
-          titleHasKeyword
+          titleHasExactKeywords
             ? 92
-            : title.length >= 20 && title.length <= 72 && titleHasKeyword
+            : title.length >= 20 && title.length <= 72 && titleHasExactKeywords
               ? 84
-              : title.length >= 20 && title.length <= 72
-                ? 68
+              : title.length >= 20 && title.length <= 72 && !titleHasExactKeywords
+                ? 35
                 : 42,
-        details: `Current title: "${displayValue(title)}" (${title.length} chars).\nTarget keyword(s): ${displayKeywordList}\nSemantic match (includes 2+ word stems when applicable): ${yesNo(titleHasKeyword)}. Full multi-word phrase match: ${yesNo(titleHasFullPhrase)}.`,
-        recommendation:
-          titleHasKeyword
-            ? titleHasFullPhrase
-              ? "Title length and phrasing look strong; keep monitoring CTR in Search Console."
-              : "Semantic coverage is fine; optionally work the full target phrase in if it stays natural."
-            : "Work the core topic (e.g. main 2-word stem) into the title and aim for roughly 50–60 characters.",
+        details: `Current title: "${displayValue(title)}" (${title.length} chars).\nTarget keyword(s): ${displayKeywordList}\nExact match (every target phrase present as a substring, normalized): ${yesNo(titleHasExactKeywords)}.`,
+        recommendation: titleHasExactKeywords
+          ? "Title includes all target phrases; keep length near 50–60 characters where possible."
+          : "Include every user-entered keyword phrase in the title (exact wording after normalization). This check fails if any phrase is missing.",
       },
       "meta-description": {
         key: "meta-description",
@@ -2215,7 +2211,7 @@ export async function runAuditJob(auditId: string) {
             : description.length > 0
               ? 58
               : 25,
-        details: `Meta description: "${displayValue(description)}".\nLength: ${description.length} characters (Google often truncates around ~155–160 on desktop; shorter on mobile).\nTarget keyword(s): ${displayKeywordList}\nAny variant present: ${yesNo(metaHasKeyword)}. Exact phrase uses: ${exactKeywordInMetaCount}.`,
+        details: `Meta description: "${displayValue(description)}".\nLength: ${description.length} characters (Google often truncates around ~155–160 on desktop; shorter on mobile).\nTarget keyword(s): ${displayKeywordList}\nExact match (all phrases in description, normalized): ${yesNo(metaHasKeyword)}. Raw exact-phrase hit count: ${exactKeywordInMetaCount}.`,
         recommendation:
           !metaHasKeyword
             ? "Include the target keyword once in meta description and keep it natural."
@@ -2228,27 +2224,26 @@ export async function runAuditJob(auditId: string) {
       "h1-count": {
         key: "h1-count",
         score:
-          h1Count === 1 && h1ContainsKeyword
+          h1Count === 1 && h1ContainsExactKeywords
             ? 95
             : h1Count === 1
-              ? 45
+              ? 38
               : h1Count === 0
                 ? 35
                 : 50,
-        details: `Detected ${h1Count} H1 tags.\nCurrent H1: "${displayValue(h1Text)}".\nTarget keyword(s): ${displayKeywordList}\nSemantic/variant match in H1: ${yesNo(h1ContainsKeyword)}.`,
+        details: `Detected ${h1Count} H1 tags.\nCurrent H1: "${displayValue(h1Text)}".\nTarget keyword(s): ${displayKeywordList}\nExact match (all phrases in H1, normalized): ${yesNo(h1ContainsExactKeywords)}.`,
         recommendation:
-          h1Count === 1 && h1ContainsKeyword
-            ? "Maintain one clear H1 aligned with title intent."
-            : "Use exactly one H1 that reflects your target keyword and page purpose.",
+          h1Count === 1 && h1ContainsExactKeywords
+            ? "Maintain one clear H1 that includes all target phrases."
+            : "Use exactly one H1 and include every user-entered keyword phrase in that H1 (exact substring match after normalization).",
       },
       "h2-keyword": {
         key: "h2-keyword",
-        score: h2WithKeywordCount > 0 ? 88 : h2Count > 0 ? 48 : 35,
-        details: `H2 headings found: ${h2Count}.\nTarget keyword(s): ${displayKeywordList}\nH2 headings matching semantic stems (includes 2-word phrases from 3+ word targets): ${h2WithKeywordCount}.`,
-        recommendation:
-          h2WithKeywordCount > 0
-            ? "Keep at least one meaningful H2 aligned with the target topic."
-            : "Include the target topic (or its main stems) naturally in at least one H2 heading.",
+        score: hasH2WithAllExactKeywords ? 88 : h2Count > 0 ? 40 : 35,
+        details: `H2 headings found: ${h2Count}.\nTarget keyword(s): ${displayKeywordList}\nH2 headings that contain all target phrases (exact, normalized): ${h2WithAllExactPhrasesCount}.`,
+        recommendation: hasH2WithAllExactKeywords
+          ? "At least one H2 includes every target phrase; keep section headings aligned with search intent."
+          : "Add at least one H2 that contains every user-entered keyword phrase (same exact-match rule as title/H1).",
       },
       "heading-hierarchy": {
         key: "heading-hierarchy",
@@ -2636,8 +2631,9 @@ Uncompressed text assets (${uncompressedAssets.length}): ${formatList(uncompress
         : pageSpeed?.score != null && (checksByKey.pagespeed?.score ?? 0) >= 60
           ? "medium"
           : "high",
-      "title-tag": "high",
-      "h1-count": "high",
+      "title-tag": titleHasExactKeywords ? "high" : "critical",
+      "h1-count": h1ContainsExactKeywords ? "high" : "critical",
+      "h2-keyword": hasH2WithAllExactKeywords ? "high" : "critical",
       "safe-browsing": safeBrowsingSkipped ? "low" : safeBrowsing.flagged ? "critical" : "high",
       "indexability-controls": hasNoindex ? "critical" : "high",
       "http-status-chain": pageProbe.hops >= 3 || pageProbe.usedTemporaryRedirect ? "high" : "medium",

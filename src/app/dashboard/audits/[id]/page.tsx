@@ -8,10 +8,9 @@ import { AuditCheckResults } from "@/components/audit-check-results";
 import { AuditTopicPanel } from "@/components/audit-topic-panel";
 import { ShareAuditButton } from "@/components/share-audit-button";
 import {
-  expandKeywordsForSemanticMatch,
   formatKeywordCandidatesAsQuotedList,
-  matchesAnyKeywordEquivalent,
   parseKeywordCandidates,
+  textContainsAllExactKeywords,
 } from "@/lib/keyword-match";
 import { AUDIT_CHECKLIST } from "@/lib/seo-checklist";
 import { CRO_AUDIT_CHECKLIST } from "@/lib/cro-checklist";
@@ -82,8 +81,8 @@ async function fetchLiveKeywordCoverage(targetUrl: string, keywordCandidates: st
     return {
       currentTitle,
       currentH1,
-      titleHasKeyword: matchesAnyKeywordEquivalent(currentTitle, keywordCandidates),
-      h1HasKeyword: matchesAnyKeywordEquivalent(currentH1, keywordCandidates),
+      titleHasKeyword: textContainsAllExactKeywords(currentTitle, keywordCandidates),
+      h1HasKeyword: textContainsAllExactKeywords(currentH1, keywordCandidates),
     };
   } catch {
     return null;
@@ -112,7 +111,7 @@ export default async function AuditDetailsPage({
   const auditType = auditTypeFromKeyword(audit.targetKeyword);
   const liveKeywordCoverage =
     auditType === "seo"
-      ? await fetchLiveKeywordCoverage(audit.targetUrl, expandKeywordsForSemanticMatch(fallbackCandidates))
+      ? await fetchLiveKeywordCoverage(audit.targetUrl, fallbackCandidates)
       : null;
   const checklistTemplate = auditType === "cro" ? CRO_AUDIT_CHECKLIST : AUDIT_CHECKLIST;
   const activeCheckKeys = new Set(checklistTemplate.map((check) => check.key));

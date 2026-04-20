@@ -12,7 +12,7 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     key: "title-tag",
     title: "Title Tag",
     priority: "high",
-    description: "Length, keyword inclusion, and uniqueness.",
+    description: "Length and exact inclusion of all user-entered keyword phrases.",
   },
   {
     key: "meta-description",
@@ -24,13 +24,13 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     key: "h1-count",
     title: "H1 and Primary Heading",
     priority: "high",
-    description: "Exactly one H1 with relevant keyword alignment.",
+    description: "Exactly one H1 containing every user-entered keyword phrase (exact match).",
   },
   {
     key: "h2-keyword",
     title: "H2 Keyword Alignment",
     priority: "high",
-    description: "At least one H2 should include the target keyword naturally.",
+    description: "At least one H2 contains every user-entered keyword phrase (exact match).",
   },
   {
     key: "heading-hierarchy",
