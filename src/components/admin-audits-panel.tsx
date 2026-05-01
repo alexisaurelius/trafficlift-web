@@ -136,6 +136,17 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
   const [jsonInput, setJsonInput] = useState("");
   const [jsonStatus, setJsonStatus] = useState<{ type: "ok" | "error" | "info"; message: string } | null>(null);
 
+  // Keep the browser URL in sync with the currently selected audit so each
+  // request has a stable, copy-pasteable admin slug like /dashboard/admin/<id>.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!selectedAuditId) return;
+    const desiredPath = `/dashboard/admin/${selectedAuditId}`;
+    if (window.location.pathname !== desiredPath) {
+      window.history.replaceState(window.history.state, "", desiredPath + window.location.search + window.location.hash);
+    }
+  }, [selectedAuditId]);
+
   const selectedAudit = useMemo(
     () => audits.find((a) => a.id === selectedAuditId) ?? null,
     [audits, selectedAuditId],
