@@ -1,0 +1,33 @@
+---
+description: Always commit, push, and deploy to Vercel after every change
+alwaysApply: true
+---
+
+# Auto-Deploy After Every Change (Mandatory)
+
+The user runs this project in production and expects every code change to ship immediately. Do NOT wait to be asked. Do NOT ask permission.
+
+## Required workflow after ANY code change
+
+After completing any file edit (no matter how small), you MUST run this end-to-end before ending your turn:
+
+1. The deployable Next.js app is the git repo rooted at `web/`. Run all git/vercel commands from there.
+2. Stage ONLY the files you intentionally changed in this turn — do not blanket `git add -A` if there is unrelated WIP in the working tree. If everything modified is yours, `git add -A` is fine.
+3. `git commit -m "<concise message describing change>"` — never skip hooks.
+4. `git push` to the current branch (typically `master`). This triggers Vercel's git auto-deploy.
+5. Verify the deploy: `vercel ls` (most recent deployment) or `vercel inspect <url>` until status is READY. Surface the production URL.
+6. If the project is not connected to git auto-deploy, fall back to `vercel --prod` from `web/`. WARNING: this uploads the entire local working directory, including any unrelated uncommitted WIP — only use this when you are confident the working tree is clean enough to ship.
+
+## Rules
+
+- This is the default behavior. The user should never have to say "deploy this" or "push this" — it is implied by every request that touches code.
+- If a deploy fails, surface the error and fix it in the same turn — do not stop at "I committed it."
+- If env vars or secrets need updating on Vercel for the change to work in production (e.g. new `ADMIN_EMAIL`, new API keys), call this out explicitly and update them with `vercel env add` when possible, or tell the user exactly where to add them in the Vercel dashboard.
+- Never leave the user with a "do you want me to deploy?" question. The answer is always yes.
+- `.env*` is gitignored — production env values must be set in the Vercel dashboard or via `vercel env add`. Never commit secrets.
+- Only skip auto-deploy if the user explicitly says "don't deploy" or "local only" in this turn.
+
+## Communication
+
+- Do not announce or quote the rule. Just do it.
+- After deploying, give a one-line summary: what changed + production URL.
