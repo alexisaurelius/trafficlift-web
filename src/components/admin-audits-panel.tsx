@@ -613,8 +613,12 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
               <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Audit ID</span>
               <input
                 value={selectedAuditId}
-                onChange={(e) => setSelectedAuditId(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
+                readOnly
+                aria-readonly="true"
+                tabIndex={-1}
+                onFocus={(e) => e.currentTarget.select()}
+                title="Locked to the selected audit. Open a different audit via its admin URL or the Pending list to change."
+                className="mt-1 w-full cursor-default select-all rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface-container-low)] px-3 py-2 font-mono text-xs text-[var(--on-surface)]/85"
               />
             </label>
             <label className="block">
