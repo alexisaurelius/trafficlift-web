@@ -133,7 +133,6 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
   const [otherChecks, setOtherChecks] = useState<ExistingAuditCheck[]>([]);
   const [includeManualChecks, setIncludeManualChecks] = useState(false);
   const [showManualChecks, setShowManualChecks] = useState(true);
-  const [uploadMode, setUploadMode] = useState<"form" | "json">("form");
   const [jsonInput, setJsonInput] = useState("");
   const [jsonStatus, setJsonStatus] = useState<{ type: "ok" | "error" | "info"; message: string } | null>(null);
 
@@ -273,7 +272,6 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
         setStatus(normalized);
       }
     }
-    setUploadMode("form");
     setMessage("Applied JSON to form fields. Review and click Publish.");
   }, [validateJsonLocally]);
 
@@ -284,10 +282,18 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
     }
     const data = validateJsonLocally();
     if (!data) return;
+    const formScoreNum = score.trim() === "" ? null : Number(score);
+    const formScoreValid = formScoreNum !== null && Number.isFinite(formScoreNum);
+    const finalScore = formScoreValid
+      ? Math.max(0, Math.min(100, Math.round(formScoreNum as number)))
+      : typeof data.score === "number"
+        ? data.score
+        : null;
+    const finalSummary = summary.trim() ? summary : typeof data.summary === "string" ? data.summary : null;
     const payload: Record<string, unknown> = {
       reportMarkdown: typeof data.reportMarkdown === "string" ? data.reportMarkdown : "",
-      summary: typeof data.summary === "string" ? data.summary : null,
-      score: typeof data.score === "number" ? data.score : null,
+      summary: finalSummary,
+      score: finalScore,
       checks: data.checks,
       notifyUser: opts.publish ? notifyUser : false,
     };
@@ -481,30 +487,6 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
     return { ...payload, checks: buildChecksPayload() };
   }
 
-  async function saveDraft() {
-    await patchAudit(
-      withChecks({
-        reportMarkdown,
-        summary: summary || null,
-        score: score === "" ? null : Number(score),
-        saveDraft: true,
-        notifyUser: false,
-      }),
-    );
-  }
-
-  async function publishAudit() {
-    await patchAudit(
-      withChecks({
-        reportMarkdown,
-        summary: summary || null,
-        score: score === "" ? null : Number(score),
-        publish: true,
-        notifyUser,
-      }),
-    );
-  }
-
   async function saveAdvanced() {
     await patchAudit(
       withChecks({
@@ -618,132 +600,13 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
       </article>
 
       <article className="order-1 rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-5 shadow-[0_12px_40px_rgba(0,22,57,0.06)] lg:order-1">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-manrope text-xl font-extrabold">Upload Completed Audit</h2>
-          <div className="inline-flex rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] p-1 text-xs font-bold">
-            <button
-              type="button"
-              onClick={() => setUploadMode("form")}
-              className={`rounded-lg px-3 py-1.5 transition ${
-                uploadMode === "form" ? "bg-[var(--primary)] text-white" : "text-[var(--primary)]"
-              }`}
-            >
-              Form
-            </button>
-            <button
-              type="button"
-              onClick={() => setUploadMode("json")}
-              className={`rounded-lg px-3 py-1.5 transition ${
-                uploadMode === "json" ? "bg-[var(--primary)] text-white" : "text-[var(--primary)]"
-              }`}
-            >
-              Paste JSON (AI)
-            </button>
-          </div>
-        </div>
+        <h2 className="font-manrope text-xl font-extrabold">Upload Completed Audit</h2>
         {selectedAudit ? (
           <p className="mt-2 text-xs text-[var(--on-surface)]/65">
             <span className="font-semibold uppercase tracking-wide text-[var(--primary)]">{selectedMode}</span>{" "}
             audit • {selectedAudit.email} • <span className="break-all">{selectedAudit.targetUrl}</span>
           </p>
         ) : null}
-        {uploadMode === "json" ? (
-          <div className="mt-4 space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => insertStarterTemplate(selectedMode)}
-                className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-1.5 text-xs font-bold text-[var(--primary)]"
-              >
-                Insert {selectedMode.toUpperCase()} starter template
-              </button>
-              <button
-                type="button"
-                onClick={() => insertStarterTemplate(selectedMode === "seo" ? "cro" : "seo")}
-                className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-1.5 text-xs font-bold text-[var(--primary)]"
-              >
-                Switch to {selectedMode === "seo" ? "CRO" : "SEO"} template
-              </button>
-              <a
-                href={`/api/admin/audits/spec?mode=${selectedMode}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-1.5 text-xs font-bold text-[var(--primary)]"
-              >
-                Open spec
-              </a>
-            </div>
-            <p className="text-xs text-[var(--on-surface)]/65">
-              The AI agent should POST this JSON to{" "}
-              <code className="rounded bg-[var(--surface-container-low)] px-1">
-                /api/admin/audits/{selectedAuditId || "{id}"}/upload
-              </code>{" "}
-              with header{" "}
-              <code className="rounded bg-[var(--surface-container-low)] px-1">
-                Authorization: Bearer ADMIN_UPLOAD_TOKEN
-              </code>
-              . Or paste below and click Publish.
-            </p>
-            <textarea
-              value={jsonInput}
-              onChange={(e) => setJsonInput(e.target.value)}
-              rows={22}
-              spellCheck={false}
-              placeholder='{ "score": 72, "summary": "...", "reportMarkdown": "...", "checks": [ ... ] }'
-              className="w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 font-mono text-xs"
-            />
-            {jsonStatus ? (
-              <p
-                className={`text-xs ${
-                  jsonStatus.type === "error"
-                    ? "text-rose-700"
-                    : jsonStatus.type === "ok"
-                      ? "text-emerald-700"
-                      : "text-[var(--on-surface)]/70"
-                }`}
-              >
-                {jsonStatus.message}
-              </p>
-            ) : null}
-            <label className="flex items-center gap-2 text-sm text-[var(--on-surface)]/78">
-              <input type="checkbox" checked={notifyUser} onChange={(e) => setNotifyUser(e.target.checked)} />
-              Email customer when publishing
-            </label>
-            <div className="grid gap-2 md:grid-cols-4">
-              <button
-                type="button"
-                onClick={() => validateJsonLocally()}
-                className="inline-flex w-full items-center justify-center rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-4 py-2.5 text-sm font-bold text-[var(--primary)]"
-              >
-                Validate
-              </button>
-              <button
-                type="button"
-                onClick={() => applyJsonToFormFields()}
-                className="inline-flex w-full items-center justify-center rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-4 py-2.5 text-sm font-bold text-[var(--primary)]"
-              >
-                Apply to fields
-              </button>
-              <button
-                type="button"
-                onClick={() => void patchFromJson({ publish: false })}
-                disabled={isSaving || !selectedAuditId}
-                className="inline-flex w-full items-center justify-center rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-4 py-2.5 text-sm font-bold text-[var(--primary)] disabled:opacity-60"
-              >
-                {isSaving ? "Saving..." : "Save draft"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void patchFromJson({ publish: true })}
-                disabled={isSaving || !selectedAuditId}
-                className="inline-flex w-full items-center justify-center rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
-              >
-                {isSaving ? "Publishing..." : "Publish"}
-              </button>
-            </div>
-            {message ? <p className="text-sm text-[var(--on-surface)]/75">{message}</p> : null}
-          </div>
-        ) : (
         <div className="mt-4 space-y-3">
           <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr]">
             <label className="block">
@@ -783,27 +646,83 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
             <textarea
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
-              rows={3}
+              rows={2}
               className="mt-1 w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
             />
           </label>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => insertStarterTemplate(selectedMode)}
+              className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-1.5 text-xs font-bold text-[var(--primary)]"
+            >
+              Insert {selectedMode.toUpperCase()} starter template
+            </button>
+            <button
+              type="button"
+              onClick={() => insertStarterTemplate(selectedMode === "seo" ? "cro" : "seo")}
+              className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-1.5 text-xs font-bold text-[var(--primary)]"
+            >
+              Switch to {selectedMode === "seo" ? "CRO" : "SEO"} template
+            </button>
+            <a
+              href={`/api/admin/audits/spec?mode=${selectedMode}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-1.5 text-xs font-bold text-[var(--primary)]"
+            >
+              Open spec
+            </a>
+          </div>
           <label className="block">
-            <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Report Markdown</span>
+            <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Audit JSON (AI output)</span>
             <textarea
-              value={reportMarkdown}
-              onChange={(e) => setReportMarkdown(e.target.value)}
-              rows={20}
-              className="mt-1 w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 font-mono text-sm"
+              value={jsonInput}
+              onChange={(e) => setJsonInput(e.target.value)}
+              rows={22}
+              spellCheck={false}
+              placeholder='{ "score": 72, "summary": "...", "reportMarkdown": "...", "checks": [ ... ] }'
+              className="mt-1 w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 font-mono text-xs"
             />
           </label>
+          <p className="text-xs text-[var(--on-surface)]/60">
+            Form values for Audit ID / status / score / summary override the JSON when filled. Leave Score and Summary blank to use values from the JSON.
+          </p>
+          {jsonStatus ? (
+            <p
+              className={`text-xs ${
+                jsonStatus.type === "error"
+                  ? "text-rose-700"
+                  : jsonStatus.type === "ok"
+                    ? "text-emerald-700"
+                    : "text-[var(--on-surface)]/70"
+              }`}
+            >
+              {jsonStatus.message}
+            </p>
+          ) : null}
           <label className="flex items-center gap-2 text-sm text-[var(--on-surface)]/78">
             <input type="checkbox" checked={notifyUser} onChange={(e) => setNotifyUser(e.target.checked)} />
             Email customer when publishing
           </label>
-          <div className="grid gap-2 md:grid-cols-3">
+          <div className="grid gap-2 md:grid-cols-5">
             <button
               type="button"
-              onClick={() => void saveDraft()}
+              onClick={() => validateJsonLocally()}
+              className="inline-flex w-full items-center justify-center rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-4 py-2.5 text-sm font-bold text-[var(--primary)]"
+            >
+              Validate
+            </button>
+            <button
+              type="button"
+              onClick={() => applyJsonToFormFields()}
+              className="inline-flex w-full items-center justify-center rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-4 py-2.5 text-sm font-bold text-[var(--primary)]"
+            >
+              Apply to fields
+            </button>
+            <button
+              type="button"
+              onClick={() => void patchFromJson({ publish: false })}
               disabled={isSaving || !selectedAuditId}
               className="inline-flex w-full items-center justify-center rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-4 py-2.5 text-sm font-bold text-[var(--primary)] disabled:opacity-60"
             >
@@ -811,7 +730,7 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
             </button>
             <button
               type="button"
-              onClick={() => void publishAudit()}
+              onClick={() => void patchFromJson({ publish: true })}
               disabled={isSaving || !selectedAuditId}
               className="inline-flex w-full items-center justify-center rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
             >
@@ -828,7 +747,6 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
           </div>
           {message ? <p className="text-sm text-[var(--on-surface)]/75">{message}</p> : null}
         </div>
-        )}
       </article>
       </section>
 
