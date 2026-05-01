@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AUDIT_CHECKLIST, type CheckPriority } from "@/lib/seo-checklist";
+import { CRO_AUDIT_CHECKLIST } from "@/lib/cro-checklist";
+import { auditTypeFromKeyword } from "@/lib/audit-mode";
+import {
+  CHECK_PRIORITY_VALUES,
+  CHECK_STATUS_VALUES,
+  buildStarterTemplate,
+} from "@/lib/admin-audit-upload";
 
 type AdminAuditItem = {
   id: string;
@@ -125,6 +132,171 @@ export function AdminAuditsPanel({ audits: initialAudits = [] }: AdminAuditsPane
   const [otherChecks, setOtherChecks] = useState<ExistingAuditCheck[]>([]);
   const [includeManualChecks, setIncludeManualChecks] = useState(false);
   const [showManualChecks, setShowManualChecks] = useState(true);
+  const [uploadMode, setUploadMode] = useState<"form" | "json">("form");
+  const [jsonInput, setJsonInput] = useState("");
+  const [jsonStatus, setJsonStatus] = useState<{ type: "ok" | "error" | "info"; message: string } | null>(null);
+
+  const selectedAudit = useMemo(
+    () => audits.find((a) => a.id === selectedAuditId) ?? null,
+    [audits, selectedAuditId],
+  );
+  const selectedMode: "seo" | "cro" = useMemo(
+    () => (selectedAudit ? auditTypeFromKeyword(selectedAudit.targetKeyword) : "seo"),
+    [selectedAudit],
+  );
+  const checklistForSelected = selectedMode === "cro" ? CRO_AUDIT_CHECKLIST : AUDIT_CHECKLIST;
+
+  const insertStarterTemplate = useCallback(
+    (mode: "seo" | "cro") => {
+      const template = buildStarterTemplate(mode);
+      setJsonInput(JSON.stringify(template, null, 2));
+      setJsonStatus({
+        type: "info",
+        message: `${mode.toUpperCase()} starter template loaded — ${template.checks.length} keys. Fill status / details / recommendation for each.`,
+      });
+    },
+    [],
+  );
+
+  const parseJsonPayload = useCallback((): { ok: true; data: Record<string, unknown> } | { ok: false; message: string } => {
+    if (!jsonInput.trim()) {
+      return { ok: false, message: "JSON is empty." };
+    }
+    try {
+      const parsed = JSON.parse(jsonInput);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { ok: false, message: "Top-level JSON must be an object." };
+      }
+      return { ok: true, data: parsed as Record<string, unknown> };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Invalid JSON.";
+      return { ok: false, message: `Parse error: ${message}` };
+    }
+  }, [jsonInput]);
+
+  const validateJsonLocally = useCallback(() => {
+    const parsed = parseJsonPayload();
+    if (!parsed.ok) {
+      setJsonStatus({ type: "error", message: parsed.message });
+      return null;
+    }
+    const data = parsed.data;
+    const checks = data.checks;
+    if (!Array.isArray(checks) || checks.length === 0) {
+      setJsonStatus({ type: "error", message: "checks[] is required and must be a non-empty array." });
+      return null;
+    }
+    const validStatuses: readonly string[] = CHECK_STATUS_VALUES;
+    const validPriorities: readonly string[] = CHECK_PRIORITY_VALUES;
+    const errors: string[] = [];
+    const knownKeys = new Set(checklistForSelected.map((c) => c.key));
+    const seen = new Set<string>();
+    checks.forEach((row, idx) => {
+      if (!row || typeof row !== "object") {
+        errors.push(`checks[${idx}]: not an object`);
+        return;
+      }
+      const r = row as Record<string, unknown>;
+      if (typeof r.key !== "string" || !r.key) errors.push(`checks[${idx}].key missing`);
+      if (typeof r.title !== "string" || !r.title) errors.push(`checks[${idx}].title missing`);
+      if (typeof r.status !== "string" || !validStatuses.includes(r.status))
+        errors.push(`checks[${idx}].status must be one of ${validStatuses.join("|")}`);
+      if (typeof r.priority !== "string" || !validPriorities.includes(r.priority))
+        errors.push(`checks[${idx}].priority must be one of ${validPriorities.join("|")}`);
+      if (typeof r.key === "string") {
+        if (seen.has(r.key)) errors.push(`checks[${idx}].key duplicated: ${r.key}`);
+        seen.add(r.key);
+      }
+    });
+    const missing: string[] = [];
+    for (const k of knownKeys) if (!seen.has(k)) missing.push(k);
+    const unknown = [...seen].filter((k) => !knownKeys.has(k));
+    if (errors.length > 0 || missing.length > 0) {
+      const parts = [...errors];
+      if (missing.length > 0) parts.push(`Missing keys (${selectedMode.toUpperCase()}): ${missing.join(", ")}`);
+      if (unknown.length > 0) parts.push(`Unknown keys: ${unknown.join(", ")}`);
+      setJsonStatus({ type: "error", message: parts.join(" | ") });
+      return null;
+    }
+    setJsonStatus({
+      type: "ok",
+      message: `Valid. ${checks.length} checks for ${selectedMode.toUpperCase()}${unknown.length > 0 ? ` (${unknown.length} extra preserved)` : ""}.`,
+    });
+    return data;
+  }, [parseJsonPayload, checklistForSelected, selectedMode]);
+
+  const applyJsonToFormFields = useCallback(() => {
+    const data = validateJsonLocally();
+    if (!data) return;
+    const checks = (data.checks as Array<Record<string, unknown>>) ?? [];
+    const nextManual = buildDefaultManualChecks();
+    const preserved: ExistingAuditCheck[] = [];
+    for (const check of checks) {
+      const key = String(check.key ?? "");
+      const title = String(check.title ?? key);
+      const statusValue = String(check.status ?? "skipped");
+      const priorityValue = String(check.priority ?? "medium");
+      const details = check.details === null || check.details === undefined ? "" : String(check.details);
+      const recommendation =
+        check.recommendation === null || check.recommendation === undefined ? "" : String(check.recommendation);
+      if (MANUAL_KEY_SET.has(key)) {
+        const template = MANUAL_TEMPLATES.find((t) => t.key === key);
+        nextManual[key] = {
+          status: coerceStatus(statusValue),
+          priority: coercePriority(priorityValue, template?.defaultPriority ?? "medium"),
+          details,
+          recommendation,
+        };
+      } else {
+        preserved.push({
+          id: `pasted-${key}`,
+          key,
+          title,
+          status: statusValue,
+          priority: priorityValue,
+          details: details || null,
+          recommendation: recommendation || null,
+        });
+      }
+    }
+    setManualChecks(nextManual);
+    setOtherChecks(preserved);
+    setIncludeManualChecks(true);
+    if (typeof data.score === "number") setScore(String(data.score));
+    if (data.score === null) setScore("");
+    if (typeof data.summary === "string") setSummary(data.summary);
+    if (typeof data.reportMarkdown === "string") setReportMarkdown(data.reportMarkdown);
+    if (typeof data.status === "string") {
+      const normalized = data.status as AdminAuditItem["status"];
+      if (normalized === "QUEUED" || normalized === "RUNNING" || normalized === "COMPLETED" || normalized === "FAILED") {
+        setStatus(normalized);
+      }
+    }
+    setUploadMode("form");
+    setMessage("Applied JSON to form fields. Review and click Publish.");
+  }, [validateJsonLocally]);
+
+  async function patchFromJson(opts: { publish: boolean }) {
+    if (!selectedAuditId) {
+      setJsonStatus({ type: "error", message: "Select an audit first." });
+      return;
+    }
+    const data = validateJsonLocally();
+    if (!data) return;
+    const payload: Record<string, unknown> = {
+      reportMarkdown: typeof data.reportMarkdown === "string" ? data.reportMarkdown : "",
+      summary: typeof data.summary === "string" ? data.summary : null,
+      score: typeof data.score === "number" ? data.score : null,
+      checks: data.checks,
+      notifyUser: opts.publish ? notifyUser : false,
+    };
+    if (opts.publish) {
+      payload.publish = true;
+    } else {
+      payload.saveDraft = true;
+    }
+    await patchAudit(payload);
+  }
 
   const updateManualCheck = useCallback(
     (key: string, partial: Partial<ManualCheckRow>) => {
@@ -405,7 +577,132 @@ export function AdminAuditsPanel({ audits: initialAudits = [] }: AdminAuditsPane
       </article>
 
       <article className="order-1 rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-5 shadow-[0_12px_40px_rgba(0,22,57,0.06)] lg:order-1">
-        <h2 className="font-manrope text-xl font-extrabold">Upload Completed Audit</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-manrope text-xl font-extrabold">Upload Completed Audit</h2>
+          <div className="inline-flex rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] p-1 text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => setUploadMode("form")}
+              className={`rounded-lg px-3 py-1.5 transition ${
+                uploadMode === "form" ? "bg-[var(--primary)] text-white" : "text-[var(--primary)]"
+              }`}
+            >
+              Form
+            </button>
+            <button
+              type="button"
+              onClick={() => setUploadMode("json")}
+              className={`rounded-lg px-3 py-1.5 transition ${
+                uploadMode === "json" ? "bg-[var(--primary)] text-white" : "text-[var(--primary)]"
+              }`}
+            >
+              Paste JSON (AI)
+            </button>
+          </div>
+        </div>
+        {selectedAudit ? (
+          <p className="mt-2 text-xs text-[var(--on-surface)]/65">
+            <span className="font-semibold uppercase tracking-wide text-[var(--primary)]">{selectedMode}</span>{" "}
+            audit • {selectedAudit.email} • <span className="break-all">{selectedAudit.targetUrl}</span>
+          </p>
+        ) : null}
+        {uploadMode === "json" ? (
+          <div className="mt-4 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => insertStarterTemplate(selectedMode)}
+                className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-1.5 text-xs font-bold text-[var(--primary)]"
+              >
+                Insert {selectedMode.toUpperCase()} starter template
+              </button>
+              <button
+                type="button"
+                onClick={() => insertStarterTemplate(selectedMode === "seo" ? "cro" : "seo")}
+                className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-1.5 text-xs font-bold text-[var(--primary)]"
+              >
+                Switch to {selectedMode === "seo" ? "CRO" : "SEO"} template
+              </button>
+              <a
+                href={`/api/admin/audits/spec?mode=${selectedMode}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-1.5 text-xs font-bold text-[var(--primary)]"
+              >
+                Open spec
+              </a>
+            </div>
+            <p className="text-xs text-[var(--on-surface)]/65">
+              The AI agent should POST this JSON to{" "}
+              <code className="rounded bg-[var(--surface-container-low)] px-1">
+                /api/admin/audits/{selectedAuditId || "{id}"}/upload
+              </code>{" "}
+              with header{" "}
+              <code className="rounded bg-[var(--surface-container-low)] px-1">
+                Authorization: Bearer ADMIN_UPLOAD_TOKEN
+              </code>
+              . Or paste below and click Publish.
+            </p>
+            <textarea
+              value={jsonInput}
+              onChange={(e) => setJsonInput(e.target.value)}
+              rows={22}
+              spellCheck={false}
+              placeholder='{ "score": 72, "summary": "...", "reportMarkdown": "...", "checks": [ ... ] }'
+              className="w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 font-mono text-xs"
+            />
+            {jsonStatus ? (
+              <p
+                className={`text-xs ${
+                  jsonStatus.type === "error"
+                    ? "text-rose-700"
+                    : jsonStatus.type === "ok"
+                      ? "text-emerald-700"
+                      : "text-[var(--on-surface)]/70"
+                }`}
+              >
+                {jsonStatus.message}
+              </p>
+            ) : null}
+            <label className="flex items-center gap-2 text-sm text-[var(--on-surface)]/78">
+              <input type="checkbox" checked={notifyUser} onChange={(e) => setNotifyUser(e.target.checked)} />
+              Email customer when publishing
+            </label>
+            <div className="grid gap-2 md:grid-cols-4">
+              <button
+                type="button"
+                onClick={() => validateJsonLocally()}
+                className="inline-flex w-full items-center justify-center rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-4 py-2.5 text-sm font-bold text-[var(--primary)]"
+              >
+                Validate
+              </button>
+              <button
+                type="button"
+                onClick={() => applyJsonToFormFields()}
+                className="inline-flex w-full items-center justify-center rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-4 py-2.5 text-sm font-bold text-[var(--primary)]"
+              >
+                Apply to fields
+              </button>
+              <button
+                type="button"
+                onClick={() => void patchFromJson({ publish: false })}
+                disabled={isSaving || !selectedAuditId}
+                className="inline-flex w-full items-center justify-center rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-4 py-2.5 text-sm font-bold text-[var(--primary)] disabled:opacity-60"
+              >
+                {isSaving ? "Saving..." : "Save draft"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void patchFromJson({ publish: true })}
+                disabled={isSaving || !selectedAuditId}
+                className="inline-flex w-full items-center justify-center rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
+              >
+                {isSaving ? "Publishing..." : "Publish"}
+              </button>
+            </div>
+            {message ? <p className="text-sm text-[var(--on-surface)]/75">{message}</p> : null}
+          </div>
+        ) : (
         <div className="mt-4 space-y-3">
           <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr]">
             <label className="block">
@@ -490,6 +787,7 @@ export function AdminAuditsPanel({ audits: initialAudits = [] }: AdminAuditsPane
           </div>
           {message ? <p className="text-sm text-[var(--on-surface)]/75">{message}</p> : null}
         </div>
+        )}
       </article>
       </section>
 
