@@ -13,7 +13,7 @@ const STEPS = [
   },
   {
     title: "Final Review",
-    body: "A separate SEO-trained model validates the findings and confirms your action plan.",
+    body: "Audits are reviewed by SEO specialists who validate findings and confirm your action plan.",
   },
   {
     title: "Final Delivery",

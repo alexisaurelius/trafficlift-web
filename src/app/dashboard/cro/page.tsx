@@ -33,7 +33,7 @@ export default async function CroDashboardPage() {
       <header className="space-y-1.5">
         <h1 className="font-manrope text-[30px] font-extrabold tracking-tight text-[var(--primary)]">CRO Audit Dashboard</h1>
         <p className="max-w-2xl text-sm text-[var(--on-surface)]/68">
-          Run CRO audits from the same dashboard, track progress, and review prioritized conversion fixes.
+          Submit CRO audit requests, track status, and receive specialist-reviewed reports within 24 hours.
         </p>
       </header>
 

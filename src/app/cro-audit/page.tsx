@@ -81,7 +81,7 @@ export default async function CroAuditPage() {
               <span className="text-[#25c468]">Conversions and Revenue</span>
             </h2>
             <p className="mx-auto mt-5 max-w-xl text-base leading-snug text-[var(--on-surface)]/70 md:text-xl">
-              <span className="block md:whitespace-nowrap">Get a clear CRO action plan in under 10 minutes. Fix friction,</span>
+              <span className="block md:whitespace-nowrap">Get a clear CRO action plan within 24 hours. Fix friction,</span>
               <span className="block md:whitespace-nowrap">improve user journeys, and increase checkout completion rates.</span>
             </p>
             <div className="mt-7 flex justify-center gap-3">
@@ -144,11 +144,12 @@ export default async function CroAuditPage() {
                 Recommended
               </span>
               <h3 className="font-manrope text-[26px] font-extrabold leading-tight">TrafficLift CRO</h3>
-              <p className="mt-1 text-base font-bold uppercase tracking-wide text-[#22c55e]">Starting at $2.99</p>
+              <p className="mt-1 text-base font-bold uppercase tracking-wide text-[#22c55e]">Starting at $14.99</p>
               <ul className="mt-6 space-y-3 text-[16px] leading-snug">
                 {[
-                  "Audit delivered in under 10 minutes",
+                  "Audit delivered within 24 hours",
                   "20+ conversion factors analyzed by AI trained on high-performing funnels",
+                  "Audits are reviewed by CRO specialists",
                   "Created by SEO and CRO professionals with 12+ years of experience",
                   "Prioritized optimization list included",
                   "Step-by-step recommendations",
@@ -259,10 +260,10 @@ export default async function CroAuditPage() {
           <p className="mt-2 text-center text-sm text-[var(--on-surface)]/70">No hidden fees. Professional CRO accessible to everyone.</p>
           <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             {[
-              { name: "One-time", price: "$2.99", suffix: "/one-time", cta: "Select Basic", dark: false, perks: ["One full CRO audit of your submitted page", "All audit elements included", "Audits are stored permanently"] },
-              { name: "Starter plan", price: "$7.99", suffix: "/mo", cta: "Select Starter", dark: false, perks: ["3 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
-              { name: "Standard Plan", price: "$17.99", suffix: "/mo", cta: "Select Standard", badge: "Popular", dark: true, perks: ["10 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
-              { name: "Pro Plan", price: "$34.99", suffix: "/mo", cta: "Select Pro", dark: false, perks: ["20 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
+              { name: "One-time", price: "$14.99", suffix: "/one-time", cta: "Select Basic", dark: false, perks: ["One full CRO audit of your submitted page", "All audit elements included", "Audits are stored permanently"] },
+              { name: "Starter plan", price: "$39.99", suffix: "/mo", cta: "Select Starter", badge: "Popular", dark: true, perks: ["3 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
+              { name: "Standard Plan", price: "$89.99", suffix: "/mo", cta: "Select Standard", dark: false, perks: ["10 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
+              { name: "Pro Plan", price: "$129.99", suffix: "/mo", cta: "Select Pro", dark: false, perks: ["20 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
             ].map((plan) => (
               <article
                 key={plan.name}
@@ -350,7 +351,7 @@ export default async function CroAuditPage() {
           </h2>
           <div className="mt-8 space-y-5">
             {[
-              { q: "How long does the CRO audit take?", a: "The audit is completed in under 10 minutes, including the review phase." },
+              { q: "How long does the CRO audit take?", a: "Your CRO audit is reviewed by SEO specialists and delivered within 24 hours." },
               { q: "Will you implement the fixes?", a: "We identify and explain conversion issues and provide clear recommendations your team can implement quickly." },
               { q: "What data do I need to provide?", a: "You only need to provide the page URL and the primary conversion goal you want to improve." },
               { q: "How will I receive my audit?", a: "You will receive an email notification when your audit is ready. It will also be available in your TrafficLift dashboard." },

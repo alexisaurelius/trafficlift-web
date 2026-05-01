@@ -26,19 +26,11 @@ type DashboardAuditsPanelProps = {
   auditType?: AuditType;
 };
 
+const MANUAL_REVIEW_UNLOCK_MS = 22 * 60 * 60 * 1000;
+
 function estimateProgress(audit: AuditItem) {
-  if (audit.status === "COMPLETED" || audit.status === "FAILED") {
-    return 100;
-  }
-
-  const ageSeconds = Math.max(0, Math.floor((Date.now() - new Date(audit.createdAt).getTime()) / 1000));
-
-  if (audit.status === "QUEUED") {
-    return Math.min(40, 12 + ageSeconds * 2);
-  }
-
-  /* RUNNING: never cap at a false "almost done" — approaches 99% slowly so it does not look stuck at 92%. */
-  return Math.min(99, 40 + ageSeconds * 3);
+  const elapsedMs = Math.max(0, Date.now() - new Date(audit.createdAt).getTime());
+  return Math.min(100, Math.round((elapsedMs / MANUAL_REVIEW_UNLOCK_MS) * 100));
 }
 
 function scoreBarColor(score: number | null) {
@@ -123,7 +115,7 @@ export function DashboardAuditsPanel({
               <span
                 className={`h-2 w-2 rounded-full ${hasActiveAudits ? "animate-pulse bg-[#22c55e]" : "bg-[var(--on-surface)]/35"}`}
               />
-              {isRefreshing ? "Syncing..." : hasActiveAudits ? "Live updates on" : "Auto sync on"}
+              {isRefreshing ? "Syncing..." : hasActiveAudits ? "Status updates on" : "Auto sync on"}
             </p>
           </div>
           <div className="mt-4 space-y-3">
@@ -134,7 +126,9 @@ export function DashboardAuditsPanel({
             ) : (
               audits.map((audit) => {
                 const progress = estimateProgress(audit);
-                const isActive = audit.status === "QUEUED" || audit.status === "RUNNING";
+                const elapsedMs = Math.max(0, Date.now() - new Date(audit.createdAt).getTime());
+                const isUnlockReady = elapsedMs >= MANUAL_REVIEW_UNLOCK_MS || audit.status === "FAILED";
+                const isActive = !isUnlockReady;
                 const completedPercent = audit.score ?? 100;
                 const isCro = isCroAuditKeyword(audit.targetKeyword);
                 const keywordCandidates = parseKeywordCandidates(audit.targetKeyword);
@@ -144,18 +138,14 @@ export function DashboardAuditsPanel({
                       keywordCandidates.length > 0 ? keywordCandidates : [audit.targetKeyword],
                     );
 
-                return (
-                  <Link
-                    key={audit.id}
-                    href={`/dashboard/audits/${audit.id}`}
-                    className="group block rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_6%,white)] bg-[var(--surface)] px-4 py-4 transition hover:-translate-y-[1px] hover:bg-[var(--surface-container-low)] hover:shadow-[0_10px_20px_rgba(0,22,57,0.08)]"
-                  >
+                const cardContent = (
+                  <div className="group block rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_6%,white)] bg-[var(--surface)] px-4 py-4 transition hover:-translate-y-[1px] hover:bg-[var(--surface-container-low)] hover:shadow-[0_10px_20px_rgba(0,22,57,0.08)]">
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <p
                           className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusColor(audit.status)}`}
                         >
-                          {audit.status}
+                          {isUnlockReady && audit.status !== "FAILED" ? "READY" : "IN REVIEW"}
                         </p>
                         <h3 className="mt-2 font-semibold">{targetKeywordList}</h3>
                         <p className="mt-1 truncate text-sm text-[var(--on-surface)]/70">{audit.targetUrl}</p>
@@ -174,24 +164,32 @@ export function DashboardAuditsPanel({
                               ? "bg-[#22c55e]"
                               : scoreBarColor(audit.score)
                         }`}
-                        style={{ width: `${isActive ? progress : completedPercent}%` }}
+                        style={{ width: `${isActive ? progress : Math.max(progress, completedPercent)}%` }}
                       />
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-3">
                       <p className="text-xs text-[var(--on-surface)]/65">
                         {isActive
-                          ? progress >= 98
-                            ? "Still processing… (large pages or slow targets can take a few minutes)"
-                            : `Processing… ~${progress}%`
+                          ? `Manual review in progress. Unlocks in ~${Math.max(0, Math.ceil((MANUAL_REVIEW_UNLOCK_MS - elapsedMs) / 3_600_000))}h.`
                           : audit.status === "FAILED"
                             ? (audit.errorMessage ?? "Audit failed.")
-                            : `Score strength: ${completedPercent}%`}
+                            : "Ready to open your audit."}
                       </p>
                       <p className="text-xs font-semibold text-[var(--primary)]/76 transition group-hover:text-[var(--primary)]">
-                        View report →
+                        {isUnlockReady ? "View report →" : "Locked until timer ends"}
                       </p>
                     </div>
+                  </div>
+                );
+
+                return isUnlockReady ? (
+                  <Link key={audit.id} href={`/dashboard/audits/${audit.id}`}>
+                    {cardContent}
                   </Link>
+                ) : (
+                  <div key={audit.id} className="cursor-not-allowed opacity-90">
+                    {cardContent}
+                  </div>
                 );
               })
             )}

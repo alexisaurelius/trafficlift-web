@@ -3,10 +3,9 @@ import { AuditStatus } from "@prisma/client";
 import { z } from "zod";
 import { requireUserRecord } from "@/lib/auth-user";
 import { consumeCredit, canConsumeCredit } from "@/lib/credits";
-import { runAuditJob } from "@/lib/audit-engine";
-import { enqueueAuditJob, isAuditQueueConfigured } from "@/lib/audit-queue";
+import { sendManualAuditAlert } from "@/lib/manual-audit-alert";
 
-/** Allow inline audit completion on serverless when Redis worker is not used (SEO/CRO jobs can exceed default 10s). */
+/** Manual-audit request endpoint. */
 export const maxDuration = 300;
 import { formatKeywordCandidatesAsQuotedList, parseKeywordCandidates } from "@/lib/keyword-match";
 import { CRO_AUDIT_KEYWORD } from "@/lib/audit-mode";
@@ -111,15 +110,19 @@ export async function POST(req: Request) {
         targetUrl: parsed.data.targetUrl,
         targetKeyword: isCroAudit ? CRO_AUDIT_KEYWORD : formatKeywordCandidatesAsQuotedList(keywordCandidates),
         status: AuditStatus.QUEUED,
+        summary: "Manual audit request received. Delivery target is within 24 hours.",
       },
     });
 
     await consumeCredit(user.id, "Audit requested", audit.id);
-    if (isAuditQueueConfigured()) {
-      await enqueueAuditJob(audit.id);
-    } else {
-      await runAuditJob(audit.id);
-    }
+    await sendManualAuditAlert({
+      auditId: audit.id,
+      auditType: isCroAudit ? "cro" : "seo",
+      userEmail: user.email,
+      targetUrl: parsed.data.targetUrl,
+      targetKeyword: isCroAudit ? "CRO audit request" : formatKeywordCandidatesAsQuotedList(keywordCandidates),
+      createdAt: audit.createdAt,
+    });
 
     return NextResponse.json({ auditId: audit.id, status: audit.status }, { status: 201 });
   } catch (error) {

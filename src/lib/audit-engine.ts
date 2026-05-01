@@ -56,13 +56,9 @@ type RedirectProbe = {
   chain: string[];
   xRobotsTag: string;
   html: string | null;
-};
-
-type SafeBrowsingResult = {
-  configured: boolean;
-  error: string | null;
-  flagged: boolean;
-  threatTypes: string[];
+  serverHeader: string;
+  cfMitigated: string;
+  challengeDetected: boolean;
 };
 
 type AssetHeaderProbe = {
@@ -89,12 +85,18 @@ async function fetchWithRedirectTrace(
   let current = url;
   let usedTemporaryRedirect = false;
 
-  const fetchWithTimeout = async (fetchUrl: string) => {
+  const fetchWithTimeout = async (fetchUrl: string, useBrowserHeaders = false) => {
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), hopTimeoutMs);
     try {
       return await fetch(fetchUrl, {
-        headers: { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" },
+        headers: useBrowserHeaders
+          ? {
+              "user-agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            }
+          : { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" },
         cache: "no-store",
         redirect: "manual",
         signal: controller.signal,
@@ -115,11 +117,17 @@ async function fetchWithRedirectTrace(
   };
 
   for (let i = 0; i <= maxRedirects; i += 1) {
-    const response = await fetchWithTimeout(current);
+    let response = await fetchWithTimeout(current);
     const location = response.headers.get("location");
     const isRedirect = redirectStatus(response.status) && Boolean(location);
 
     if (!isRedirect || !location) {
+      if (response.status >= 400 && response.status < 600) {
+        response = await fetchWithTimeout(current, true);
+      }
+      const html = includeBody ? await readBodyWithCap(response) : null;
+      const serverHeader = response.headers.get("server") ?? "";
+      const cfMitigated = response.headers.get("cf-mitigated") ?? "";
       return {
         requestedUrl: url,
         finalUrl: current,
@@ -129,7 +137,10 @@ async function fetchWithRedirectTrace(
         loopDetected: false,
         chain,
         xRobotsTag: response.headers.get("x-robots-tag") ?? "",
-        html: includeBody ? await readBodyWithCap(response) : null,
+        html,
+        serverHeader,
+        cfMitigated,
+        challengeDetected: isLikelyBotChallenge(response.status, serverHeader, cfMitigated, html),
       };
     }
 
@@ -146,6 +157,9 @@ async function fetchWithRedirectTrace(
         chain,
         xRobotsTag: response.headers.get("x-robots-tag") ?? "",
         html: null,
+        serverHeader: response.headers.get("server") ?? "",
+        cfMitigated: response.headers.get("cf-mitigated") ?? "",
+        challengeDetected: false,
       };
     }
 
@@ -161,6 +175,9 @@ async function fetchWithRedirectTrace(
         chain,
         xRobotsTag: response.headers.get("x-robots-tag") ?? "",
         html: null,
+        serverHeader: response.headers.get("server") ?? "",
+        cfMitigated: response.headers.get("cf-mitigated") ?? "",
+        challengeDetected: false,
       };
     }
 
@@ -179,6 +196,9 @@ async function fetchWithRedirectTrace(
     chain,
     xRobotsTag: "",
     html: null,
+    serverHeader: "",
+    cfMitigated: "",
+    challengeDetected: false,
   };
 }
 
@@ -297,9 +317,83 @@ function collectJsonLdTypes(value: unknown): string[] {
     : typeof rawType === "string"
       ? [rawType]
       : [];
+  const nestedTypes = Object.entries(node)
+    .filter(([key]) => key !== "@type")
+    .flatMap(([, nestedValue]) => collectJsonLdTypes(nestedValue));
+  return [...ownTypes, ...nestedTypes];
+}
 
-  const graphTypes = collectJsonLdTypes(node["@graph"]);
+function collectTopLevelJsonLdTypes(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectTopLevelJsonLdTypes(entry));
+  }
+
+  const node = value as Record<string, unknown>;
+  const readTypes = (candidate: unknown): string[] => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const record = candidate as Record<string, unknown>;
+    const rawType = record["@type"];
+    return Array.isArray(rawType)
+      ? rawType.filter((t): t is string => typeof t === "string")
+      : typeof rawType === "string"
+        ? [rawType]
+        : [];
+  };
+
+  const ownTypes = readTypes(node);
+  const graphNodes = Array.isArray(node["@graph"]) ? (node["@graph"] as unknown[]) : [];
+  const graphTypes = graphNodes.flatMap((entry) => readTypes(entry));
   return [...ownTypes, ...graphTypes];
+}
+
+function detectLocaleVariantsInUrls(urls: string[], fallbackOrigin: string) {
+  const localePattern = /^([a-z]{2})(-[a-z]{2})?$/i;
+  const hosts = new Set<string>();
+  const pathLocaleSignals = new Set<string>();
+
+  urls.forEach((raw) => {
+    const resolved = safeUrl(raw, fallbackOrigin);
+    if (!resolved) return;
+    hosts.add(resolved.hostname.toLowerCase());
+    const segments = resolved.pathname
+      .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+    const firstSegment = segments[0] ?? "";
+    if (localePattern.test(firstSegment)) {
+      pathLocaleSignals.add(firstSegment.toLowerCase());
+    }
+  });
+
+  const localeSubdomains = [...hosts]
+    .map((host) => host.split(".")[0] ?? "")
+    .filter((subdomain) => localePattern.test(subdomain))
+    .map((subdomain) => subdomain.toLowerCase());
+
+  const distinctLocales = new Set([...pathLocaleSignals, ...localeSubdomains]);
+  return distinctLocales.size >= 2;
+}
+
+function isLikelyBotChallenge(
+  status: number | null,
+  serverHeader: string,
+  cfMitigated: string,
+  html: string | null,
+) {
+  if (!status || ![403, 429, 503].includes(status)) return false;
+  const server = serverHeader.toLowerCase();
+  const body = (html ?? "").toLowerCase();
+  const hasCloudflareSignal = server.includes("cloudflare") || cfMitigated.trim().length > 0;
+  const hasAkamaiSignal = server.includes("akamai") || body.includes("akamai bot manager");
+  const hasPerimeterXSignal = body.includes("perimeterx") || body.includes("px-captcha");
+  const hasChallengeSignature =
+    body.includes("just a moment") ||
+    body.includes("cf-challenge") ||
+    body.includes("attention required") ||
+    body.includes("verify you are human") ||
+    body.includes("checking your browser");
+  return (hasCloudflareSignal && hasChallengeSignature) || hasAkamaiSignal || hasPerimeterXSignal;
 }
 
 function parseSitemapLocs(sitemapText: string | null) {
@@ -320,13 +414,6 @@ function parseRobotsSitemapUrls(robotsText: string | null, baseUrl: string) {
     .filter((entry): entry is string => Boolean(entry));
 
   return [...new Set(urls)];
-}
-
-/** Naive registrable domain (last two labels); good enough to group same-org subdomains vs vendors. */
-function getRegistrableDomain(hostname: string) {
-  const parts = hostname.toLowerCase().split(".").filter(Boolean);
-  if (parts.length < 2) return hostname.toLowerCase();
-  return parts.slice(-2).join(".");
 }
 
 const MAX_SITEMAP_DOC_FETCHES = 150;
@@ -723,99 +810,10 @@ function formatDuplicateSamples(duplicates: Array<{ value: string; urls: string[
     .join(" | ");
 }
 
-async function checkSafeBrowsing(targetUrl: string): Promise<SafeBrowsingResult> {
-  const apiKey = process.env.GOOGLE_SAFE_BROWSING_API_KEY;
-  if (!apiKey) {
-    return { configured: false, error: null, flagged: false, threatTypes: [] };
-  }
-
-  try {
-    const response = await fetch(
-      `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          client: { clientId: "trafficlift", clientVersion: "1.0.0" },
-          threatInfo: {
-            threatTypes: [
-              "MALWARE",
-              "SOCIAL_ENGINEERING",
-              "UNWANTED_SOFTWARE",
-              "POTENTIALLY_HARMFUL_APPLICATION",
-            ],
-            platformTypes: ["ANY_PLATFORM"],
-            threatEntryTypes: ["URL"],
-            threatEntries: [{ url: targetUrl }],
-          },
-        }),
-      },
-    );
-    if (!response.ok) {
-      return {
-        configured: true,
-        error: `API error (${response.status})`,
-        flagged: false,
-        threatTypes: [],
-      };
-    }
-
-    const data = (await response.json()) as { matches?: Array<{ threatType?: string }> };
-    const matches = data.matches ?? [];
-    const threatTypes = [...new Set(matches.map((m) => m.threatType).filter((v): v is string => Boolean(v)))];
-    return {
-      configured: true,
-      error: null,
-      flagged: matches.length > 0,
-      threatTypes,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return { configured: true, error: message, flagged: false, threatTypes: [] };
-  }
-}
-
 function statusFromCheckScore(checkScore: number): "pass" | "fail" | "warn" {
   if (checkScore >= 80) return "pass";
   if (checkScore >= 60) return "warn";
   return "fail";
-}
-
-async function getPageSpeedMetrics(targetUrl: string) {
-  if (!process.env.PAGESPEED_API_KEY) {
-    return null;
-  }
-
-  const endpoint = new URL("https://www.googleapis.com/pagespeedonline/v5/runPagespeed");
-  endpoint.searchParams.set("url", targetUrl);
-  endpoint.searchParams.set("strategy", "mobile");
-  endpoint.searchParams.set("category", "performance");
-  endpoint.searchParams.set("key", process.env.PAGESPEED_API_KEY);
-
-  const response = await fetch(endpoint.toString(), { cache: "no-store" });
-  if (!response.ok) return null;
-  const data = (await response.json()) as {
-    lighthouseResult?: {
-      categories?: { performance?: { score?: number } };
-      audits?: {
-        "largest-contentful-paint"?: { displayValue?: string };
-        "cumulative-layout-shift"?: { displayValue?: string };
-        "interaction-to-next-paint"?: { displayValue?: string };
-      };
-    };
-  };
-
-  const performance = data.lighthouseResult?.categories?.performance?.score;
-  const lcp = data.lighthouseResult?.audits?.["largest-contentful-paint"]?.displayValue;
-  const cls = data.lighthouseResult?.audits?.["cumulative-layout-shift"]?.displayValue;
-  const inp = data.lighthouseResult?.audits?.["interaction-to-next-paint"]?.displayValue;
-
-  return {
-    score: typeof performance === "number" ? Math.round(performance * 100) : null,
-    lcp: lcp ?? "n/a",
-    cls: cls ?? "n/a",
-    inp: inp ?? "n/a",
-  };
 }
 
 function formatReport(
@@ -1962,9 +1960,22 @@ export async function runAuditJob(auditId: string) {
     const images = $("img").toArray();
     const missingAltAttribute = images.filter((img) => $(img).attr("alt") === undefined).length;
     const decorativeAltCount = images.filter((img) => ($(img).attr("alt") ?? "") === "").length;
-    const nonLazyImages = images.filter((img) => {
+    const initialViewportImageWindow = 3;
+    const likelyAboveFoldImages = images.filter((img, index) => {
+      if (index < initialViewportImageWindow) return true;
+      const wrappedInPriorityContainer = $(img).closest("header, [role='banner'], main section:first-of-type").length > 0;
+      return wrappedInPriorityContainer;
+    });
+    const aboveFoldImageSrcSet = new Set(
+      likelyAboveFoldImages
+        .map((img) => $(img).attr("src") ?? "")
+        .filter((src) => Boolean(src)),
+    );
+    const nonLazyBelowFoldImages = images.filter((img, index) => {
       const loading = ($(img).attr("loading") ?? "").toLowerCase();
-      return loading !== "lazy";
+      const src = ($(img).attr("src") ?? "").trim();
+      const isLikelyAboveFold = index < initialViewportImageWindow || (src && aboveFoldImageSrcSet.has(src));
+      return loading !== "lazy" && !isLikelyAboveFold;
     }).length;
     const preloadImageCount = $('link[rel="preload"][as="image"]').length;
     const imageWithGenericAlt = images.filter((img) => {
@@ -1973,10 +1984,15 @@ export async function runAuditJob(auditId: string) {
     }).length;
 
     const scriptTagsWithSrc = $("script[src]").toArray();
-    const scriptSrcUrls = scriptTagsWithSrc
-      .map((tag) => $(tag).attr("src") ?? "")
-      .map((src) => safeUrl(src, livePageUrl)?.toString())
-      .filter((url): url is string => Boolean(url));
+    const scriptTagsBySrc = new Map<string, (typeof scriptTagsWithSrc)[number]>();
+    scriptTagsWithSrc.forEach((tag) => {
+      const rawSrc = ($(tag).attr("src") ?? "").trim();
+      const resolvedSrc = safeUrl(rawSrc, livePageUrl)?.toString() ?? rawSrc;
+      if (!resolvedSrc || scriptTagsBySrc.has(resolvedSrc)) return;
+      scriptTagsBySrc.set(resolvedSrc, tag);
+    });
+    const dedupedScriptTagsWithSrc = [...scriptTagsBySrc.values()];
+    const scriptSrcUrls = [...scriptTagsBySrc.keys()].filter(Boolean);
     const sameOriginScriptUrls = [...new Set(
       scriptSrcUrls.filter((scriptUrl) => safeUrl(scriptUrl, livePageUrl)?.origin === origin),
     )];
@@ -1988,13 +2004,16 @@ export async function runAuditJob(auditId: string) {
         .filter((url): url is string => Boolean(url))
         .filter((resolved) => safeUrl(resolved, livePageUrl)?.origin === origin),
     )];
-    const renderBlockingScripts = scriptTagsWithSrc.filter((tag) => {
+    const renderBlockingScripts = dedupedScriptTagsWithSrc.filter((tag) => {
       const isInHead = $(tag).parents("head").length > 0;
       const hasAsync = $(tag).attr("async") !== undefined;
       const hasDefer = $(tag).attr("defer") !== undefined;
+      const hasNoModule = $(tag).attr("nomodule") !== undefined;
       const typeValue = ($(tag).attr("type") ?? "").toLowerCase();
       const isModule = typeValue === "module";
-      return isInHead && !hasAsync && !hasDefer && !isModule;
+      const src = ($(tag).attr("src") ?? "").toLowerCase();
+      const isNoModulePolyfill = hasNoModule && /polyfills?[-._]/i.test(src);
+      return isInHead && !hasAsync && !hasDefer && !isModule && !isNoModulePolyfill;
     });
     const renderBlockingScriptUrls = renderBlockingScripts
       .map((tag) => $(tag).attr("src") ?? "")
@@ -2002,22 +2021,6 @@ export async function runAuditJob(auditId: string) {
       .filter(Boolean);
     const preloadStyleCount = $('link[rel="preload"][as="style"]').length;
     const nonPreloadedStylesheetCount = Math.max(stylesheetUrls.length - preloadStyleCount, 0);
-
-    const thirdPartyScriptUrls = [...new Set(
-      scriptSrcUrls.filter((scriptUrl) => {
-        const resolved = safeUrl(scriptUrl, livePageUrl);
-        return Boolean(resolved && resolved.origin !== origin);
-      }),
-    )];
-    const pageHostname = new URL(livePageUrl).hostname;
-    const pageOrg = getRegistrableDomain(pageHostname);
-    const scriptsByOrg = thirdPartyScriptUrls.map((scriptUrl) => {
-      const host = safeUrl(scriptUrl, livePageUrl)?.hostname.toLowerCase() ?? "";
-      const org = getRegistrableDomain(host);
-      return { url: scriptUrl, host, org, sameOrg: org === pageOrg };
-    });
-    const crossOrgScripts = scriptsByOrg.filter((s) => !s.sameOrg);
-    const crossOrgDomains = [...new Set(crossOrgScripts.map((s) => s.org))];
 
     const coreAssetCandidates = [...new Set([...sameOriginScriptUrls, ...stylesheetUrls])].slice(0, 12);
     const coreAssetHeaderProbes = await Promise.all(coreAssetCandidates.map((url) => fetchAssetHeaders(url)));
@@ -2045,19 +2048,26 @@ export async function runAuditJob(auditId: string) {
 
     const schemaScripts = $('script[type="application/ld+json"]').toArray();
     const parsedSchemaTypes: string[] = [];
+    const topLevelSchemaTypes: string[] = [];
     const invalidSchemaIndexes: number[] = [];
+    const normalizedJsonLdBlocks: string[] = [];
     schemaScripts.forEach((script, index) => {
       try {
-        const parsed = JSON.parse($(script).text()) as unknown;
+        const jsonText = ($(script).text() ?? "").trim();
+        const parsed = JSON.parse(jsonText) as unknown;
         parsedSchemaTypes.push(...collectJsonLdTypes(parsed));
+        topLevelSchemaTypes.push(...collectTopLevelJsonLdTypes(parsed));
+        normalizedJsonLdBlocks.push(JSON.stringify(parsed));
       } catch {
         invalidSchemaIndexes.push(index + 1);
       }
     });
+    const uniqueJsonLdBlocks = new Set(normalizedJsonLdBlocks);
+    const duplicateJsonLdBlockCount = Math.max(normalizedJsonLdBlocks.length - uniqueJsonLdBlocks.size, 0);
     const validSchemaCount = schemaScripts.length - invalidSchemaIndexes.length;
     const hasFaqSchema = parsedSchemaTypes.some((type) => /faqpage/i.test(type));
-    const hasOrganizationSchema = parsedSchemaTypes.some((type) => /organization/i.test(type));
-    const hasWebSiteSchema = parsedSchemaTypes.some((type) => /website/i.test(type));
+    const hasTopLevelOrganizationSchema = topLevelSchemaTypes.some((type) => /organization/i.test(type));
+    const hasTopLevelWebSiteSchema = topLevelSchemaTypes.some((type) => /website/i.test(type));
 
     const hreflangTags = $('link[rel="alternate"][hreflang]').toArray();
     const hreflangEntries = hreflangTags
@@ -2075,9 +2085,6 @@ export async function runAuditJob(auditId: string) {
 
     const robotsText = await fetchText(`${origin}/robots.txt`);
     const robotsLower = robotsText?.toLowerCase() ?? "";
-    const matchedAiBots = ["claudebot", "gptbot", "bytespider", "ccbot", "google-extended"].filter((bot) =>
-      robotsLower.includes(bot),
-    );
     const robotsDeclaresSitemap = robotsLower.includes("sitemap:");
     const robotsAllowsGoogle = !/user-agent:\s*googlebot[\s\S]*?disallow:\s*\/\s*$/im.test(robotsLower);
     const robotsSitemapUrls = parseRobotsSitemapUrls(robotsText, origin);
@@ -2098,8 +2105,8 @@ export async function runAuditJob(auditId: string) {
     const sitemapDocsFetched = sitemapWalk.docsFetched;
     const sitemapStoppedEarly = sitemapWalk.stoppedEarly;
 
-    const sampleSitemapLocs = sitemapLocs.slice(0, 5);
     const sitemapSampleForCrawl = [...new Set([`${origin}/`, ...sitemapLocs])].slice(0, 30);
+    const hasLocaleVariantsInSitemap = detectLocaleVariantsInUrls(sitemapLocs, origin);
 
     const submittedUrl = safeUrl(audit.targetUrl, audit.targetUrl);
     const submittedComparable = submittedUrl ? normalizePageUrlForComparison(submittedUrl) : null;
@@ -2113,20 +2120,23 @@ export async function runAuditJob(auditId: string) {
 
     const sitemapHasHome = sitemapComparablePages.has(normalizeUrl(`${origin}/`));
 
-    const internalLinkCandidates = [...new Set(
+    const allInternalLinkCandidates = [...new Set(
       nonFragmentInternalLinks
         .map((a) => $(a).attr("href") ?? "")
         .map((href) => safeUrl(href, livePageUrl)?.toString())
         .filter((href): href is string => Boolean(href)),
-    )].slice(0, 20);
+    )];
+    const internalLinkProbeLimit = 100;
+    const internalLinkCandidates = allInternalLinkCandidates.slice(0, internalLinkProbeLimit);
+    const internalLinksSampled = internalLinkCandidates.length < allInternalLinkCandidates.length;
     const internalLinkProbes = await Promise.all(
       internalLinkCandidates.map(async (url) => ({
         url,
-        probe: await fetchWithRedirectTrace(url),
+        probe: await fetchWithRedirectTrace(url, { includeBody: true }),
       })),
     );
     const brokenInternalLinks = internalLinkProbes.filter(
-      ({ probe }) => !probe.finalStatus || probe.finalStatus >= 400,
+      ({ probe }) => (!probe.finalStatus || probe.finalStatus >= 400) && !probe.challengeDetected,
     );
     const excessiveRedirectInternalLinks = internalLinkProbes.filter(({ probe }) => probe.hops >= 3);
 
@@ -2163,8 +2173,6 @@ export async function runAuditJob(auditId: string) {
       .filter(([, urls]) => urls.length > 1)
       .map(([value, urls]) => ({ value, urls }));
 
-    const safeBrowsing = await checkSafeBrowsing(livePageUrl);
-
     const ogTitle = $('meta[property="og:title"]').attr("content") ?? "";
     const ogDescription = $('meta[property="og:description"]').attr("content") ?? "";
     const ogImage = $('meta[property="og:image"]').attr("content") ?? "";
@@ -2172,10 +2180,6 @@ export async function runAuditJob(auditId: string) {
     const twitterTitle = $('meta[name="twitter:title"]').attr("content") ?? "";
     const twitterDescription = $('meta[name="twitter:description"]').attr("content") ?? "";
     const twitterImage = $('meta[name="twitter:image"]').attr("content") ?? "";
-
-    const pageSpeed = await getPageSpeedMetrics(audit.targetUrl);
-    const pageSpeedSkipped = !process.env.PAGESPEED_API_KEY || pageSpeed == null || pageSpeed.score == null;
-    const safeBrowsingSkipped = !safeBrowsing.configured;
 
     const checksByKey: Record<string, CheckResult> = {
       "title-tag": {
@@ -2262,30 +2266,39 @@ export async function runAuditJob(auditId: string) {
       },
       "structured-data": {
         key: "structured-data",
-        score: schemaScripts.length === 0 ? 45 : validSchemaCount === schemaScripts.length ? 90 : 30,
-        details: `JSON-LD blocks found: ${schemaScripts.length}. Valid blocks: ${validSchemaCount}. Invalid blocks: ${invalidSchemaIndexes.join(", ") || "none"}.`,
+        score:
+          schemaScripts.length === 0
+            ? 45
+            : validSchemaCount !== schemaScripts.length
+              ? 30
+              : duplicateJsonLdBlockCount > 0
+                ? 70
+                : 90,
+        details: `JSON-LD blocks found: ${schemaScripts.length}. Valid blocks: ${validSchemaCount}. Invalid blocks: ${invalidSchemaIndexes.join(", ") || "none"}. Exact-duplicate JSON-LD blocks: ${duplicateJsonLdBlockCount}.`,
         recommendation:
-          validSchemaCount === schemaScripts.length
-            ? "Structured data is valid; keep JSON-LD aligned with visible content."
-            : "Fix invalid JSON-LD syntax to restore rich result eligibility.",
+          validSchemaCount !== schemaScripts.length
+            ? "Fix invalid JSON-LD syntax to restore rich result eligibility."
+            : duplicateJsonLdBlockCount > 0
+              ? "Remove duplicate JSON-LD blocks so each schema entity is declared once."
+              : "Structured data is valid; keep JSON-LD aligned with visible content.",
       },
       "schema-coverage": {
         key: "schema-coverage",
         score:
           schemaScripts.length === 0
-            ? 35
-            : hasOrganizationSchema && hasWebSiteSchema
+            ? 60
+            : hasTopLevelOrganizationSchema && hasTopLevelWebSiteSchema
               ? hasFaqSchema
                 ? 90
                 : 86
-              : hasOrganizationSchema || hasWebSiteSchema
-                ? 68
-                : 48,
-        details: `Schema types detected: ${parsedSchemaTypes.join(", ") || "none"}. FAQPage present: ${yesNo(hasFaqSchema)}. Organization: ${yesNo(hasOrganizationSchema)}. WebSite: ${yesNo(hasWebSiteSchema)}.`,
+              : hasTopLevelOrganizationSchema || hasTopLevelWebSiteSchema
+                ? 76
+                : 64,
+        details: `Schema types detected (all nested levels): ${parsedSchemaTypes.join(", ") || "none"}. Top-level schema types (root/@graph only): ${topLevelSchemaTypes.join(", ") || "none"}. FAQPage present: ${yesNo(hasFaqSchema)}. Top-level Organization: ${yesNo(hasTopLevelOrganizationSchema)}. Top-level WebSite: ${yesNo(hasTopLevelWebSiteSchema)}.`,
         recommendation:
-          hasOrganizationSchema && hasWebSiteSchema
-            ? "Organization and WebSite schema are present; keep entities synchronized with the live page."
-            : "Add Organization and WebSite JSON-LD where relevant so search engines can resolve brand and site entities.",
+          hasTopLevelOrganizationSchema && hasTopLevelWebSiteSchema
+            ? "Top-level Organization and WebSite schema are present; keep entities synchronized with the live page."
+            : "Consider adding standalone top-level Organization/WebSite JSON-LD where relevant to clarify site-level entities; nested publisher/provider nodes do not satisfy this coverage.",
       },
       canonical: {
         key: "canonical",
@@ -2356,12 +2369,16 @@ export async function runAuditJob(auditId: string) {
       },
       hreflang: {
         key: "hreflang",
-        score: hreflangTags.length === 0 ? 60 : hasXDefault ? 85 : 65,
+        score: hreflangTags.length === 0 && !hasLocaleVariantsInSitemap ? 80 : hasXDefault ? 85 : 65,
         details: `Hreflang entries: ${formatList(hreflangEntries)}. x-default present: ${yesNo(
           hasXDefault,
-        )}. x-default href: ${xDefaultHref?.toString() ?? "missing"}.`,
+        )}. x-default href: ${xDefaultHref?.toString() ?? "missing"}. Locale variants inferred from sitemap URLs: ${yesNo(
+          hasLocaleVariantsInSitemap,
+        )}.`,
         recommendation:
-          "Ensure x-default points to your canonical default page and locale URLs are in sitemap.",
+          hreflangTags.length === 0 && !hasLocaleVariantsInSitemap
+            ? "No multi-locale signal detected; treating hreflang as not applicable for this page."
+            : "Ensure x-default points to your canonical default page and locale URLs are in sitemap.",
       },
       sitemap: {
         key: "sitemap",
@@ -2403,18 +2420,6 @@ export async function runAuditJob(auditId: string) {
           : `robots.txt not detected at ${origin}/robots.txt.`,
         recommendation:
           "Keep crawl directives intentional. Add a sitemap line only if you want a universal hint beyond Search Console submissions.",
-      },
-      "robots-ai-policy": {
-        key: "robots-ai-policy",
-        score: 85,
-        details: robotsText
-          ? `Informational only — business/legal context matters. AI crawler name fragments seen in file: ${formatList(
-              matchedAiBots,
-              "none",
-            )} (empty does not imply allow or deny).`
-          : `robots.txt missing at ${origin}/robots.txt; AI crawler rules could not be read.`,
-        recommendation:
-          "There is no default “correct” AI crawler stance. Align robots rules with licensing and content strategy.",
       },
       "social-tags": {
         key: "social-tags",
@@ -2474,14 +2479,29 @@ export async function runAuditJob(auditId: string) {
         score:
           images.length === 0
             ? 80
-            : nonLazyImages <= 2 && preloadImageCount >= 1
-              ? 88
-              : nonLazyImages <= Math.ceil(images.length * 0.4)
-                ? 66
+            : nonLazyBelowFoldImages === 0 && preloadImageCount <= 3
+              ? 90
+              : nonLazyBelowFoldImages <= 2 && preloadImageCount <= 3
+                ? 76
+                : preloadImageCount > 3
+                  ? 55
                 : 45,
-        details: `Total images: ${images.length}. Non-lazy images: ${nonLazyImages}. Preload image hints: ${preloadImageCount}.`,
+        details: [
+          `Total images: ${images.length}.`,
+          ...(nonLazyBelowFoldImages > 0
+            ? [`Non-lazy images likely below-the-fold: ${nonLazyBelowFoldImages}.`]
+            : []),
+          ...(preloadImageCount > 3 ? [`Preload image hints: ${preloadImageCount} (recommended <=3).`] : []),
+          `Heuristic used for "likely below-the-fold": images after the first ${initialViewportImageWindow} in DOM order, unless inside header/banner/first main section.`,
+        ].join(" "),
         recommendation:
-          "Lazy-load below-fold images and preload key LCP image assets for stronger Core Web Vitals.",
+          preloadImageCount > 3 && nonLazyBelowFoldImages > 0
+            ? "Reduce image preloads to the most critical 1-3 assets and lazy-load likely below-the-fold images while keeping likely above-the-fold/LCP images eager."
+            : preloadImageCount > 3
+              ? "Reduce image preloads to the most critical 1-3 assets and keep likely above-the-fold/LCP images eagerly loaded."
+              : nonLazyBelowFoldImages > 0
+                ? "Lazy-load likely below-the-fold images while keeping likely above-the-fold/LCP images eager."
+                : "Current image loading/preload strategy looks balanced.",
       },
       "render-blocking-resources": {
         key: "render-blocking-resources",
@@ -2493,15 +2513,24 @@ export async function runAuditJob(auditId: string) {
               : renderBlockingScripts.length <= 2
                 ? 58
                 : 40,
-        details: `Parser-blocking head scripts (no async/defer/module): ${renderBlockingScripts.length} (${formatList(
-          renderBlockingScriptUrls,
-          "none",
-          4,
-        )}). Stylesheets linked: ${stylesheetUrls.length} (preload count is shown for context only — preloading many CSS files is usually harmful; prefer critical CSS / deferral patterns over blanket preload). Stylesheets without link preload: ${nonPreloadedStylesheetCount}.`,
+        details:
+          stylesheetUrls.length === 0
+            ? `Parser-blocking head scripts (no async/defer/module): ${renderBlockingScripts.length} (${formatList(
+                renderBlockingScriptUrls,
+                "none",
+                4,
+              )}). Stylesheets linked: 0.`
+            : `Parser-blocking head scripts (no async/defer/module): ${renderBlockingScripts.length} (${formatList(
+                renderBlockingScriptUrls,
+                "none",
+                4,
+              )}). Stylesheets linked: ${stylesheetUrls.length}. Stylesheets without link preload: ${nonPreloadedStylesheetCount}.`,
         recommendation:
           renderBlockingScripts.length > 0
             ? "Move or defer parser-blocking scripts (async/defer/module) so they do not block HTML parsing."
-            : "For CSS, consider inlining critical CSS and loading non-critical styles with media tricks or deferred bundles — not mass link preload.",
+            : stylesheetUrls.length > 0
+              ? "For CSS, consider inlining critical CSS and loading non-critical styles with media tricks or deferred bundles."
+              : "No parser-blocking scripts were detected.",
       },
       "asset-caching-compression": {
         key: "asset-caching-compression",
@@ -2524,26 +2553,6 @@ Uncompressed text assets (${uncompressedAssets.length}): ${formatList(uncompress
         recommendation:
           `Prefer long max-age (often ≥31536000 for hashed/versioned filenames) plus compression for text responses.`,
       },
-      "third-party-script-weight": {
-        key: "third-party-script-weight",
-        score:
-          crossOrgScripts.length === 0
-            ? 90
-            : crossOrgScripts.length <= 10 && crossOrgDomains.length <= 5
-              ? 82
-              : crossOrgScripts.length <= 18
-                ? 64
-                : 42,
-        details: `Script tags with src: ${thirdPartyScriptUrls.length}. Same org/registrable domain as page (${pageOrg}): ${
-          scriptsByOrg.filter((s) => s.sameOrg).length
-        }. Cross-org scripts (excludes same registrable domain as the page): ${crossOrgScripts.length} across ${
-          crossOrgDomains.length
-        } domain(s): ${formatList(crossOrgDomains, "none", 6)}. Warn thresholds (heuristic): >10 cross-org scripts or >5 cross-org domains.`,
-        recommendation:
-          crossOrgScripts.length > 10
-            ? "Review cross-origin scripts for necessity, load order, and consent; defer or remove low-value vendors."
-            : "Cross-org script load looks moderate; keep third-party tags intentional.",
-      },
       "internal-linking": {
         key: "internal-linking",
         score: internalLinks >= 5 ? 85 : internalLinks >= 2 ? 65 : 45,
@@ -2561,27 +2570,19 @@ Uncompressed text assets (${uncompressedAssets.length}): ${formatList(uncompress
               : brokenInternalLinks.length <= 1 && excessiveRedirectInternalLinks.length <= 2
                 ? 66
                 : 42,
-        details: `Internal links checked: ${internalLinkCandidates.length}. Broken (4xx/5xx): ${
+        details: `Internal links checked: ${internalLinkCandidates.length}/${allInternalLinkCandidates.length}${
+          internalLinksSampled ? " (sampled)" : " (full set)"
+        }. Broken (4xx/5xx): ${
           brokenInternalLinks.length
         } (${formatList(brokenInternalLinks.map((item) => item.url), "none", 3)}). Excessive redirect chains (3+ hops): ${
           excessiveRedirectInternalLinks.length
-        } (${formatList(excessiveRedirectInternalLinks.map((item) => item.url), "none", 3)}).`,
+        } (${formatList(excessiveRedirectInternalLinks.map((item) => item.url), "none", 3)}). Bot-challenge protected links excluded from broken count: ${
+          internalLinkProbes.filter(({ probe }) => probe.challengeDetected).length
+        }.`,
         recommendation:
-          "Fix broken internal links and update URLs that pass through long redirect chains.",
-      },
-      pagespeed: {
-        key: "pagespeed",
-        score:
-          pageSpeed?.score != null ? Math.max(38, pageSpeed.score) : 86,
-        details: pageSpeed
-          ? `PageSpeed score: ${pageSpeed.score}/100. LCP: ${pageSpeed.lcp}, CLS: ${pageSpeed.cls}, INP: ${pageSpeed.inp}.`
-          : "PageSpeed Insights was not run — PAGESPEED_API_KEY is not set, so Core Web Vitals were not measured for this page.",
-        recommendation:
-          pageSpeed && pageSpeed.score !== null && pageSpeed.score >= 80
-            ? "Maintain current performance and keep monitoring core vitals."
-            : pageSpeed
-              ? "Optimize LCP assets, reduce layout shifts, and improve interaction responsiveness."
-              : "Configure PAGESPEED_API_KEY for TrafficLift to measure real CWV for audited URLs.",
+          internalLinksSampled
+            ? "Fix broken internal links and long redirect chains; this result is sampled, so run a full crawl for exhaustive coverage."
+            : "Fix broken internal links and update URLs that pass through long redirect chains.",
       },
       "duplicate-metadata": {
         key: "duplicate-metadata",
@@ -2601,40 +2602,13 @@ Uncompressed text assets (${uncompressedAssets.length}): ${formatList(uncompress
         recommendation:
           "Make title and meta description copy unique for each indexable page in the sampled set.",
       },
-      "safe-browsing": {
-        key: "safe-browsing",
-        score: !safeBrowsing.configured ? 86 : safeBrowsing.error ? 55 : safeBrowsing.flagged ? 15 : 95,
-        details: !safeBrowsing.configured
-          ? "Google Safe Browsing was not queried — GOOGLE_SAFE_BROWSING_API_KEY is not set."
-          : safeBrowsing.error
-            ? `Safe Browsing check failed: ${safeBrowsing.error}.`
-            : `Safe Browsing flagged URL: ${yesNo(safeBrowsing.flagged)}. Threat types: ${formatList(
-                safeBrowsing.threatTypes,
-                "none",
-              )}.`,
-        recommendation: !safeBrowsing.configured
-          ? "Add GOOGLE_SAFE_BROWSING_API_KEY if you want automated malware/phishing checks in reports."
-          : safeBrowsing.flagged
-            ? "Investigate and remediate malware/phishing risk before indexing and promotion."
-            : "No threat match found. Keep routine security monitoring in place.",
-      },
     };
-
-    const skippedSeoCheckKeys = new Set<string>();
-    if (pageSpeedSkipped) skippedSeoCheckKeys.add("pagespeed");
-    if (safeBrowsingSkipped) skippedSeoCheckKeys.add("safe-browsing");
 
     const effectivePriorityByKey: Record<string, "critical" | "high" | "medium" | "low"> = {
       canonical: "critical",
-      pagespeed: pageSpeedSkipped
-        ? "low"
-        : pageSpeed?.score != null && (checksByKey.pagespeed?.score ?? 0) >= 60
-          ? "medium"
-          : "high",
       "title-tag": titleHasExactKeywords ? "high" : "critical",
       "h1-count": h1ContainsExactKeywords ? "high" : "critical",
       "h2-keyword": hasH2WithAllExactKeywords ? "high" : "critical",
-      "safe-browsing": safeBrowsingSkipped ? "low" : safeBrowsing.flagged ? "critical" : "high",
       "indexability-controls": hasNoindex ? "critical" : "high",
       "http-status-chain": pageProbe.hops >= 3 || pageProbe.usedTemporaryRedirect ? "high" : "medium",
       "render-blocking-resources": renderBlockingScripts.length >= 3 ? "critical" : "high",
@@ -2642,7 +2616,7 @@ Uncompressed text assets (${uncompressedAssets.length}): ${formatList(uncompress
         weakCacheAssets.length + uncompressedAssets.length >= 4 ? "high" : "medium",
     };
 
-    const weighted = AUDIT_CHECKLIST.filter((item) => !skippedSeoCheckKeys.has(item.key)).map((item) => {
+    const weighted = AUDIT_CHECKLIST.map((item) => {
       const check = checksByKey[item.key];
       const score = check ? check.score : 50;
       const effectivePriority = effectivePriorityByKey[item.key] ?? item.priority;
@@ -2662,16 +2636,14 @@ Uncompressed text assets (${uncompressedAssets.length}): ${formatList(uncompress
       const check = checksByKey[item.key];
       const checkScore = check?.score ?? 50;
       const effectivePriority = effectivePriorityByKey[item.key] ?? item.priority;
-      const skipped = skippedSeoCheckKeys.has(item.key);
       return {
         auditId,
         key: item.key,
         title: item.title,
         priority: effectivePriority,
-        status: skipped ? "skipped" : statusFromCheckScore(checkScore),
+        status: statusFromCheckScore(checkScore),
         details: check?.details ?? item.description,
-        recommendation:
-          check?.recommendation ?? (skipped ? "Not measured in this run." : "Review this area and apply best-practice fixes."),
+        recommendation: check?.recommendation ?? "Review this area and apply best-practice fixes.",
       };
     });
 

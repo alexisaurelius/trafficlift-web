@@ -3,15 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const navItems = [
-  { href: "/dashboard", label: "SEO Audit" },
-  { href: "/dashboard/cro", label: "CRO Audit" },
-  { href: "/dashboard/billing", label: "Billing" },
-  { href: "/dashboard/my-audits", label: "My Audits" },
-];
-
-export function DashboardNav() {
+export function DashboardNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
+  const navItems = [
+    { href: "/dashboard", label: "SEO Audit" },
+    { href: "/dashboard/cro", label: "CRO Audit" },
+    { href: "/dashboard/billing", label: "Billing" },
+    { href: "/dashboard/my-audits", label: "My Audits" },
+    ...(isAdmin ? [{ href: "/dashboard/admin", label: "Admin" }] : []),
+  ];
 
   return (
     <nav className="rounded-2xl bg-[var(--surface-container-low)]/85 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">

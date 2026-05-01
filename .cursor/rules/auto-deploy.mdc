@@ -12,11 +12,11 @@ The user runs this project in production and expects every code change to ship i
 After completing any file edit (no matter how small), you MUST run this end-to-end before ending your turn:
 
 1. The deployable Next.js app is the git repo rooted at `web/`. Run all git/vercel commands from there.
-2. Stage ONLY the files you intentionally changed in this turn — do not blanket `git add -A` if there is unrelated WIP in the working tree. If everything modified is yours, `git add -A` is fine.
+2. Stage EVERYTHING with `git add -A`. The user wants every modified and untracked file committed and shipped on every turn — never leave WIP behind, never cherry-pick.
 3. `git commit -m "<concise message describing change>"` — never skip hooks.
 4. `git push` to the current branch (typically `master`). This triggers Vercel's git auto-deploy.
 5. Verify the deploy: `vercel ls` (most recent deployment) or `vercel inspect <url>` until status is READY. Surface the production URL.
-6. If the project is not connected to git auto-deploy, fall back to `vercel --prod` from `web/`. WARNING: this uploads the entire local working directory, including any unrelated uncommitted WIP — only use this when you are confident the working tree is clean enough to ship.
+6. If the project is not connected to git auto-deploy, fall back to `vercel --prod` from `web/`.
 
 ## Rules
 

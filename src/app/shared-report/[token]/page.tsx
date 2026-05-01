@@ -4,19 +4,14 @@ import { AuditCheckResults } from "@/components/audit-check-results";
 import { AuditTopicPanel } from "@/components/audit-topic-panel";
 import { ReportMarkdownPanel } from "@/components/report-markdown-panel";
 import { formatKeywordCandidatesAsQuotedList, parseKeywordCandidates } from "@/lib/keyword-match";
-
-function pagespeedPriorityFromDetails(details: string | null | undefined) {
-  const match = details?.match(/PageSpeed score:\s*(\d+)/i);
-  if (!match) return null;
-  const score = Number(match[1]);
-  if (!Number.isFinite(score)) return null;
-  return score >= 60 ? "medium" : "high";
-}
+import { AUDIT_CHECKLIST } from "@/lib/seo-checklist";
+import { CRO_AUDIT_CHECKLIST } from "@/lib/cro-checklist";
+import { auditTypeFromKeyword } from "@/lib/audit-mode";
+import { orderChecksForDisplay } from "@/lib/audit-check-order";
 
 function effectivePriorityForCheck(check: { key: string; priority: string; details?: string | null }) {
   if (check.key === "canonical") return "critical";
-  if (check.key !== "pagespeed") return check.priority;
-  return pagespeedPriorityFromDetails(check.details) ?? check.priority;
+  return check.priority;
 }
 
 export default async function SharedReportPage({
@@ -36,7 +31,9 @@ export default async function SharedReportPage({
     keywordCandidates.length > 0 ? keywordCandidates : [audit.targetKeyword],
   );
 
-  const checksWithEffectivePriority = audit.checks.map((check) => ({
+  const checklistTemplate = auditTypeFromKeyword(audit.targetKeyword) === "cro" ? CRO_AUDIT_CHECKLIST : AUDIT_CHECKLIST;
+  const orderedChecks = orderChecksForDisplay(audit.checks, checklistTemplate);
+  const checksWithEffectivePriority = orderedChecks.map((check) => ({
     ...check,
     priority: effectivePriorityForCheck(check),
   }));

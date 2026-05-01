@@ -41,7 +41,7 @@ export function OrderAuditForm({ onCreated, auditType = "seo" }: OrderAuditFormP
           setMessage(data.error ?? "Unable to create audit.");
         }
       } else {
-        setMessage("Audit queued. Live progress will update automatically.");
+        setMessage("Audit request received. Our SEO specialists will review and deliver it within 24 hours.");
         if (data.auditId) {
           onCreated?.(data.auditId);
         }
@@ -66,8 +66,8 @@ export function OrderAuditForm({ onCreated, auditType = "seo" }: OrderAuditFormP
         <h2 className="font-manrope text-xl font-extrabold">Order New {auditType === "cro" ? "CRO" : "SEO"} Audit</h2>
         <p className="mt-1 text-sm text-[var(--on-surface)]/66">
           {auditType === "seo"
-            ? "Submit a URL and up to 3 target keywords (comma-separated). We handle the analysis and review."
-            : "Submit a page URL. We run a full CRO checklist and return prioritized conversion recommendations."}
+            ? "Submit a URL and up to 3 target keywords (comma-separated). Your audit is reviewed manually by SEO specialists."
+            : "Submit a page URL. Your CRO audit is reviewed manually by SEO/CRO specialists."}
         </p>
       </div>
       <div className="space-y-1.5">
@@ -104,12 +104,12 @@ export function OrderAuditForm({ onCreated, auditType = "seo" }: OrderAuditFormP
         type="submit"
         className="inline-flex w-full items-center justify-center rounded-3xl bg-[var(--primary)] px-5 py-3 text-sm font-bold text-white shadow-[0_10px_24px_rgba(0,22,57,0.18)] transition hover:scale-[1.01] hover:bg-[var(--primary-container)] disabled:opacity-60"
       >
-        {isSubmitting ? "Queueing Audit..." : "Start Audit"}
+        {isSubmitting ? "Submitting Request..." : "Start Audit"}
       </button>
       <div className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_8%,white)] bg-[var(--surface)] px-3.5 py-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">What happens next</p>
         <p className="mt-1 text-sm text-[var(--on-surface)]">
-          Automated checks run immediately, then your report is usually ready in under 10 minutes with prioritized actions.
+          After submission, your request is emailed to our team. We manually prepare your report and upload it to your dashboard within 24 hours.
         </p>
       </div>
       <div className="mt-auto rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_8%,white)] bg-[var(--surface)] px-3.5 py-3">

@@ -33,7 +33,7 @@ export default async function DashboardPage() {
       <header className="space-y-1.5">
         <h1 className="font-manrope text-[30px] font-extrabold tracking-tight text-[var(--primary)]">SEO Audit Dashboard</h1>
         <p className="max-w-2xl text-sm text-[var(--on-surface)]/68">
-          Queue new audits, track live processing, and open completed reports instantly.
+          Submit new audits, track request status, and receive specialist-reviewed reports within 24 hours.
         </p>
       </header>
 

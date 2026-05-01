@@ -4,12 +4,14 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
-# Auto-Deploy Is Mandatory
+# Auto-Deploy Is Mandatory — Commit Everything, Every Time
 
 After ANY code change, without being asked:
 
-1. `cd web && git add -A && git commit -m "<msg>" && git push`
-2. `vercel --prod` from `web/`
-3. Report the production URL.
+1. From `web/`: `git add -A` (EVERYTHING — all modified + untracked, no cherry-picking)
+2. `git commit -m "<msg>"`
+3. `git push` — Vercel auto-deploys from master
+4. Verify with `vercel ls --prod` until status is Ready
+5. Report the production URL
 
-Never ask "do you want me to deploy?" — the answer is always yes. Only skip if the user explicitly says "don't deploy". See `.cursor/rules/auto-deploy.mdc` for full rules.
+Never ask "do you want me to deploy?" — the answer is always yes. Never leave WIP behind. Only skip if the user explicitly says "don't deploy". See `.cursor/rules/auto-deploy.mdc` for full rules.

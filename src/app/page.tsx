@@ -109,7 +109,7 @@ export default async function Home() {
               <span className="text-[#25c468]">Traffic and Revenue</span>
             </h2>
           <p className="mx-auto mt-5 max-w-xl text-base leading-snug text-[var(--on-surface)]/70 md:text-xl">
-            Get a Clear SEO Fix List under 10 Minutes. Rank in Google and AI agents like ChatGPT, Gemini, and Claude.
+            Get a clear SEO fix list within 24 hours. Rank in Google and AI agents like ChatGPT, Gemini, and Claude.
             </p>
             <div className="mt-7 flex justify-center gap-3">
               <Link
@@ -193,12 +193,13 @@ export default async function Home() {
               </span>
               <h3 className="font-manrope text-[26px] font-extrabold leading-tight">TrafficLift</h3>
               <p className="mt-1 text-base font-bold uppercase tracking-wide text-[#22c55e]">
-                Starting at $2.99
+                Starting at $14.99
               </p>
               <ul className="mt-6 space-y-3 text-[16px] leading-snug">
                 {[
-                  "Audit delivered in under 10 minutes",
+                  "Audit delivered within 24 hours",
                   "30+ ranking factors analyzed by AI trained on real search data",
+                  "Audits are reviewed by SEO specialists",
                   "Created by SEO professionals with 12+ years of experience",
                   "Prioritized fix list included",
                   "Step-by-step recommendations",
@@ -321,7 +322,7 @@ export default async function Home() {
             {[
               {
                 name: "One-time",
-                price: "$2.99",
+                price: "$14.99",
                 suffix: "/one-time",
                 cta: "Select Basic",
                 dark: false,
@@ -333,10 +334,11 @@ export default async function Home() {
               },
               {
                 name: "Starter plan",
-                price: "$7.99",
+                price: "$39.99",
                 suffix: "/mo",
                 cta: "Select Starter",
-                dark: false,
+                badge: "Popular",
+                dark: true,
                 perks: [
                   "3 audits included",
                   "Full audit of your submitted pages",
@@ -346,11 +348,10 @@ export default async function Home() {
               },
               {
                 name: "Standard Plan",
-                price: "$17.99",
+                price: "$89.99",
                 suffix: "/mo",
                 cta: "Select Standard",
-                badge: "Popular",
-                dark: true,
+                dark: false,
                 perks: [
                   "10 audits included",
                   "Full audit of your submitted pages",
@@ -360,7 +361,7 @@ export default async function Home() {
               },
               {
                 name: "Pro Plan",
-                price: "$34.99",
+                price: "$129.99",
                 suffix: "/mo",
                 cta: "Select Pro",
                 dark: false,
@@ -565,7 +566,7 @@ export default async function Home() {
             {[
               {
                 q: "How long does the audit take?",
-                a: "The audit is completed in under 10 minutes, including the review phase.",
+                a: "Your audit is reviewed by SEO specialists and delivered within 24 hours.",
               },
               {
                 q: "Will you fix the issues?",

@@ -15,6 +15,7 @@ import {
 import { AUDIT_CHECKLIST } from "@/lib/seo-checklist";
 import { CRO_AUDIT_CHECKLIST } from "@/lib/cro-checklist";
 import { auditTypeFromKeyword } from "@/lib/audit-mode";
+import { orderChecksForDisplay } from "@/lib/audit-check-order";
 const LIVE_KEYWORD_FETCH_TIMEOUT_MS = 900;
 
 function getScoreContext(score: number) {
@@ -32,18 +33,9 @@ function getCroScoreContext(score: number) {
 }
 
 
-function pagespeedPriorityFromDetails(details: string | null | undefined) {
-  const match = details?.match(/PageSpeed score:\s*(\d+)/i);
-  if (!match) return null;
-  const score = Number(match[1]);
-  if (!Number.isFinite(score)) return null;
-  return score >= 60 ? "medium" : "high";
-}
-
 function effectivePriorityForCheck(check: { key: string; priority: string; details?: string | null }) {
   if (check.key === "canonical") return "critical";
-  if (check.key !== "pagespeed") return check.priority;
-  return pagespeedPriorityFromDetails(check.details) ?? check.priority;
+  return check.priority;
 }
 
 function priorityRank(priority: string) {
@@ -114,11 +106,7 @@ export default async function AuditDetailsPage({
       ? await fetchLiveKeywordCoverage(audit.targetUrl, fallbackCandidates)
       : null;
   const checklistTemplate = auditType === "cro" ? CRO_AUDIT_CHECKLIST : AUDIT_CHECKLIST;
-  const activeCheckKeys = new Set(checklistTemplate.map((check) => check.key));
-
-  const checksMatchingTemplate = audit.checks.filter((check) => activeCheckKeys.has(check.key));
-  /* If checklist keys changed between deploys, filtering can hide every row — fall back to stored checks. */
-  const checksForReport = checksMatchingTemplate.length > 0 ? checksMatchingTemplate : audit.checks;
+  const checksForReport = orderChecksForDisplay(audit.checks, checklistTemplate);
 
   const score = audit.score ?? 0;
   const checksWithEffectivePriority = checksForReport.map((check) => {
@@ -194,9 +182,9 @@ export default async function AuditDetailsPage({
     <section className="space-y-6">
       {(audit.status === "QUEUED" || audit.status === "RUNNING") && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-          <p className="font-semibold">Audit in progress</p>
+          <p className="font-semibold">Manual audit in progress</p>
           <p className="mt-1">
-            Individual checks and the executive report are written when processing completes. Refresh in a few seconds — large sites or slow responses can take several minutes.
+            Your request has been received and assigned for specialist review. Your completed audit will be uploaded here within 24 hours.
           </p>
         </div>
       )}
@@ -206,7 +194,7 @@ export default async function AuditDetailsPage({
           <p className="mt-1 whitespace-pre-wrap">{audit.errorMessage ?? "Unknown error. Try again or use a different URL."}</p>
         </div>
       )}
-      {audit.status === "COMPLETED" && checksWithEffectivePriority.length === 0 && (
+      {audit.status === "COMPLETED" && checksWithEffectivePriority.length === 0 && !audit.reportMarkdown && (
         <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 text-sm text-rose-900">
           <p className="font-semibold">No check rows stored</p>
           <p className="mt-1">Re-run the audit. If this persists, the job may have been interrupted before saving results.</p>

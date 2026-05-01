@@ -2,12 +2,18 @@ import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { ChevronDown } from "lucide-react";
 import { DashboardNav } from "@/components/dashboard-nav";
+import { requireUserRecord, isAdminEmail } from "@/lib/auth-user";
 
-export default function DashboardLayout({
+export const dynamic = "force-dynamic";
+
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const user = await requireUserRecord();
+  const isAdmin = isAdminEmail(user.email);
+
   return (
     <div className="relative min-h-screen overflow-x-clip bg-[var(--surface)] text-[var(--on-surface)]">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[220px] bg-[radial-gradient(80%_70%_at_50%_0%,rgba(0,42,95,0.11),rgba(252,249,248,0))]" />
@@ -57,7 +63,7 @@ export default function DashboardLayout({
               </Link>
             </div>
             <div className="justify-self-center">
-              <DashboardNav />
+              <DashboardNav isAdmin={isAdmin} />
             </div>
             <div className="flex items-center justify-self-end gap-1.5">
               <UserButton />

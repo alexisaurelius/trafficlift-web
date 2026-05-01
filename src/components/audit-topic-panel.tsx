@@ -25,7 +25,6 @@ function buildPlainWhy(
   const details = check.details ?? "";
   const titleMatch = details.match(/Current title:\s*"([^"]+)"/i);
   const h1Match = details.match(/Current H1:\s*"([^"]+)"/i);
-  const psMatch = details.match(/PageSpeed score:\s*(\d+)/i);
   const keywordLabel = keywordCount > 1 ? "keywords" : "keyword";
   const missingVerb = keywordCount > 1 ? "are" : "is";
   const detailsSummary = details
@@ -66,12 +65,6 @@ function buildPlainWhy(
     case "heading-hierarchy": {
       return "Heading order is evaluated in primary content (main or outside nav/footer), not in the global document order.";
     }
-    case "pagespeed":
-      if (psMatch) {
-        const score = Number(psMatch[1]);
-        return `Speed directly affects user drop-off and ranking signals. Current PageSpeed score is ${score}, which indicates optimization is still needed.`;
-      }
-      return "PageSpeed was not run for this report (API not configured), so this is not a measured performance verdict for the page.";
     case "structured-data":
       return "Broken or missing structured data can prevent rich result eligibility and reduce SERP visibility.";
     case "schema-coverage":
@@ -137,8 +130,6 @@ const TOPICS: TopicConfig[] = [
       "sitemap",
       "duplicate-metadata",
       "robots",
-      "robots-ai-policy",
-      "safe-browsing",
       "social-tags",
       "twitter-card-coverage",
       "internal-links-health",
@@ -149,11 +140,9 @@ const TOPICS: TopicConfig[] = [
     id: "performance",
     label: "Performance",
     keys: [
-      "pagespeed",
       "image-performance",
       "render-blocking-resources",
       "asset-caching-compression",
-      "third-party-script-weight",
     ],
     icon: Gauge,
   },

@@ -13,7 +13,7 @@ const STEPS = [
   },
   {
     title: "Final Review",
-    body: "A CRO-trained model validates recommendations and prioritizes the highest-impact fixes.",
+    body: "Audits are reviewed by CRO specialists who validate recommendations and prioritize the highest-impact fixes.",
   },
   {
     title: "Action Plan Delivery",
