@@ -21,6 +21,7 @@ type AdminAuditItem = {
 
 type AdminAuditsPanelProps = {
   audits?: AdminAuditItem[];
+  initialSelectedId?: string;
 };
 
 type ManualCheckStatus = "pass" | "fail" | "warn" | "skipped";
@@ -114,9 +115,9 @@ function coercePriority(value: string, fallback: CheckPriority): CheckPriority {
   return (PRIORITY_OPTIONS as string[]).includes(value) ? (value as CheckPriority) : fallback;
 }
 
-export function AdminAuditsPanel({ audits: initialAudits = [] }: AdminAuditsPanelProps) {
+export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId }: AdminAuditsPanelProps) {
   const [audits, setAudits] = useState<AdminAuditItem[]>(initialAudits);
-  const [selectedAuditId, setSelectedAuditId] = useState(initialAudits[0]?.id ?? "");
+  const [selectedAuditId, setSelectedAuditId] = useState(initialSelectedId ?? initialAudits[0]?.id ?? "");
   const [reportMarkdown, setReportMarkdown] = useState("");
   const [summary, setSummary] = useState("");
   const [score, setScore] = useState("");
@@ -368,8 +369,8 @@ export function AdminAuditsPanel({ audits: initialAudits = [] }: AdminAuditsPane
       if (Array.isArray(data.audits)) {
         setAudits(data.audits);
         setSelectedAuditId((current) => {
+          if (current) return current;
           if (data.audits!.length === 0) return "";
-          if (current && data.audits!.some((a) => a.id === current)) return current;
           return data.audits![0].id;
         });
       }
@@ -556,23 +557,63 @@ export function AdminAuditsPanel({ audits: initialAudits = [] }: AdminAuditsPane
           {isLoadingList ? "Loading…" : `${audits.length} result(s)`}
         </p>
         <div className="mt-4 space-y-3">
-          {audits.map((audit) => (
-            <button
-              key={audit.id}
-              type="button"
-              onClick={() => setSelectedAuditId(audit.id)}
-              className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-                selectedAuditId === audit.id
-                  ? "border-[var(--primary)] bg-[var(--surface-container-low)]"
-                  : "border-[color:color-mix(in_oklab,var(--primary)_8%,white)] bg-[var(--surface)]"
-              }`}
-            >
-              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--on-surface)]/60">{audit.status}</p>
-              <p className="mt-1 text-sm font-semibold">{audit.email}</p>
-              <p className="mt-1 truncate text-sm text-[var(--on-surface)]/75">{audit.targetUrl}</p>
-              <p className="mt-1 text-xs text-[var(--on-surface)]/60">{audit.targetKeyword}</p>
-            </button>
-          ))}
+          {audits.map((audit) => {
+            const adminUrl = `/dashboard/admin/${audit.id}`;
+            const isSelected = selectedAuditId === audit.id;
+            return (
+              <div
+                key={audit.id}
+                className={`rounded-xl border px-4 py-3 transition ${
+                  isSelected
+                    ? "border-[var(--primary)] bg-[var(--surface-container-low)]"
+                    : "border-[color:color-mix(in_oklab,var(--primary)_8%,white)] bg-[var(--surface)]"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setSelectedAuditId(audit.id)}
+                  className="block w-full text-left"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--on-surface)]/60">
+                    {audit.status}
+                  </p>
+                  <p className="mt-1 text-sm font-semibold">{audit.email}</p>
+                  <p className="mt-1 truncate text-sm text-[var(--on-surface)]/75">{audit.targetUrl}</p>
+                  <p className="mt-1 text-xs text-[var(--on-surface)]/60">{audit.targetKeyword}</p>
+                </button>
+                <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[color:color-mix(in_oklab,var(--primary)_8%,white)] pt-2">
+                  <a
+                    href={adminUrl}
+                    className="text-[11px] font-bold uppercase tracking-wide text-[var(--primary)] hover:underline"
+                  >
+                    Open admin link
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const fullUrl =
+                        typeof window !== "undefined" ? `${window.location.origin}${adminUrl}` : adminUrl;
+                      void navigator.clipboard?.writeText(fullUrl);
+                      setMessage(`Copied admin URL for ${audit.email}.`);
+                    }}
+                    className="text-[11px] font-bold uppercase tracking-wide text-[var(--on-surface)]/65 hover:text-[var(--primary)]"
+                  >
+                    Copy URL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(audit.id);
+                      setMessage(`Copied audit ID ${audit.id}.`);
+                    }}
+                    className="text-[11px] font-bold uppercase tracking-wide text-[var(--on-surface)]/65 hover:text-[var(--primary)]"
+                  >
+                    Copy ID
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </article>
 
