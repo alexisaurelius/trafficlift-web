@@ -358,8 +358,8 @@ export function AdminAuditsPanel({ audits: initialAudits = [] }: AdminAuditsPane
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
-      <article className="rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-5 shadow-[0_12px_40px_rgba(0,22,57,0.06)]">
+      <section className="grid gap-5 lg:grid-cols-[2.2fr_1fr]">
+      <article className="order-2 rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-5 shadow-[0_12px_40px_rgba(0,22,57,0.06)] lg:order-2">
         <h2 className="font-manrope text-xl font-extrabold">Pending / Recent Requests</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
           <input
@@ -404,53 +404,65 @@ export function AdminAuditsPanel({ audits: initialAudits = [] }: AdminAuditsPane
         </div>
       </article>
 
-      <article className="rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-5 shadow-[0_12px_40px_rgba(0,22,57,0.06)]">
+      <article className="order-1 rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-5 shadow-[0_12px_40px_rgba(0,22,57,0.06)] lg:order-1">
         <h2 className="font-manrope text-xl font-extrabold">Upload Completed Audit</h2>
         <div className="mt-4 space-y-3">
-          <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Audit ID</label>
-          <input
-            value={selectedAuditId}
-            onChange={(e) => setSelectedAuditId(e.target.value)}
-            className="w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
-          />
-          <p className="text-xs text-[var(--on-surface)]/60">{isLoadingAudit ? "Loading audit fields…" : null}</p>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Advanced status</label>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as AdminAuditItem["status"])}
-            className="w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
-          >
-            <option value="COMPLETED">COMPLETED</option>
-            <option value="RUNNING">RUNNING</option>
-            <option value="QUEUED">QUEUED</option>
-            <option value="FAILED">FAILED</option>
-          </select>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Score (optional)</label>
-          <input
-            value={score}
-            onChange={(e) => setScore(e.target.value)}
-            placeholder="0-100"
-            className="w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
-          />
-          <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Summary (optional)</label>
-          <textarea
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            rows={3}
-            className="w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
-          />
-          <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Report Markdown</label>
-          <textarea
-            value={reportMarkdown}
-            onChange={(e) => setReportMarkdown(e.target.value)}
-            rows={12}
-            className="w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
-          />
+          <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr]">
+            <label className="block">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Audit ID</span>
+              <input
+                value={selectedAuditId}
+                onChange={(e) => setSelectedAuditId(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Advanced status</span>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as AdminAuditItem["status"])}
+                className="mt-1 w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
+              >
+                <option value="COMPLETED">COMPLETED</option>
+                <option value="RUNNING">RUNNING</option>
+                <option value="QUEUED">QUEUED</option>
+                <option value="FAILED">FAILED</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Score (optional)</span>
+              <input
+                value={score}
+                onChange={(e) => setScore(e.target.value)}
+                placeholder="0-100"
+                className="mt-1 w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+          {isLoadingAudit ? <p className="text-xs text-[var(--on-surface)]/60">Loading audit fields…</p> : null}
+          <label className="block">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Summary (optional)</span>
+            <textarea
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              rows={3}
+              className="mt-1 w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Report Markdown</span>
+            <textarea
+              value={reportMarkdown}
+              onChange={(e) => setReportMarkdown(e.target.value)}
+              rows={20}
+              className="mt-1 w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 font-mono text-sm"
+            />
+          </label>
           <label className="flex items-center gap-2 text-sm text-[var(--on-surface)]/78">
             <input type="checkbox" checked={notifyUser} onChange={(e) => setNotifyUser(e.target.checked)} />
             Email customer when publishing
           </label>
-          <div className="grid gap-2 md:grid-cols-2">
+          <div className="grid gap-2 md:grid-cols-3">
             <button
               type="button"
               onClick={() => void saveDraft()}
@@ -467,15 +479,15 @@ export function AdminAuditsPanel({ audits: initialAudits = [] }: AdminAuditsPane
             >
               {isSaving ? "Publishing..." : "Publish"}
             </button>
+            <button
+              type="button"
+              onClick={() => void saveAdvanced()}
+              disabled={isSaving || !selectedAuditId}
+              className="inline-flex w-full items-center justify-center rounded-xl bg-[var(--surface-container-low)] px-4 py-2.5 text-sm font-bold text-[var(--primary)] disabled:opacity-60"
+            >
+              {isSaving ? "Saving..." : "Save status only"}
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => void saveAdvanced()}
-            disabled={isSaving || !selectedAuditId}
-            className="inline-flex w-full items-center justify-center rounded-xl bg-[var(--surface-container-low)] px-4 py-2.5 text-sm font-bold text-[var(--primary)] disabled:opacity-60"
-          >
-            {isSaving ? "Saving..." : "Save advanced status only"}
-          </button>
           {message ? <p className="text-sm text-[var(--on-surface)]/75">{message}</p> : null}
         </div>
       </article>
