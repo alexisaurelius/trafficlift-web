@@ -7,9 +7,21 @@ const isProtectedRoute = createRouteMatcher([
   "/api/stripe/checkout(.*)",
 ]);
 
+// Endpoints that authenticate themselves (bearer token, public spec) and must
+// bypass the Clerk session check so the AI uploader and reference agents can
+// reach them without a browser session.
+const isPublicAdminApi = createRouteMatcher([
+  "/api/admin/audits/spec",
+  "/api/admin/audits/(.*)/upload",
+]);
+
 export default clerkMiddleware(async (auth, req) => {
+  if (isPublicAdminApi(req)) {
+    return;
+  }
   if (isProtectedRoute(req)) {
-    await auth.protect({ unauthenticatedUrl: "/sign-in" });
+    const origin = req.nextUrl.origin;
+    await auth.protect({ unauthenticatedUrl: `${origin}/sign-in` });
   }
 });
 
