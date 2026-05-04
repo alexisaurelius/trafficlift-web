@@ -1,7 +1,7 @@
 "use client";
 
-import type { ComponentType } from "react";
-import { useMemo, useState } from "react";
+import type { ComponentType, ReactNode } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { FileText, Gauge, Layers3, Settings, ShieldCheck } from "lucide-react";
 import { formatKeywordCandidatesForDisplay, parseKeywordCandidates } from "@/lib/keyword-match";
 import type { AuditType } from "@/lib/audit-mode";
@@ -274,8 +274,37 @@ function sectionStyle(section: "critical" | "high" | "medium" | "low" | "skipped
   };
 }
 
-function formatDetails(details: string | null) {
-  return details ?? "No details captured.";
+// Bolds short "Label:" prefixes at the start of each line so field labels
+// inside `details` (e.g. "Current H1:", "Target keyword(s):", "Current title:",
+// "6 H2s found:", "Current Meta Description:") render in bold the same way
+// "Fix:" and "Why:" do. Also rewrites the legacy "Present:" label used by some
+// uploaded meta-description checks to the clearer "Current Meta Description:".
+function renderDetails(details: string | null): ReactNode {
+  if (!details) return "No details captured.";
+  const normalized = details.replace(/(^|[\s\-•])Present:/g, "$1Current Meta Description:");
+  const lines = normalized.split(/\r?\n/);
+  return lines.map((line, idx) => {
+    const labelMatch = line.match(/^(\s*)([A-Za-z0-9][^:\n]{0,79}):(\s+)/);
+    let content: ReactNode = line;
+    if (labelMatch) {
+      const [, leading, label, gap] = labelMatch;
+      const rest = line.slice(leading.length + label.length + 1 + gap.length);
+      content = (
+        <>
+          {leading}
+          <strong className="font-semibold">{label}:</strong>
+          {gap}
+          {rest}
+        </>
+      );
+    }
+    return (
+      <Fragment key={idx}>
+        {content}
+        {idx < lines.length - 1 ? "\n" : null}
+      </Fragment>
+    );
+  });
 }
 
 export function AuditTopicPanel({
@@ -421,7 +450,7 @@ export function AuditTopicPanel({
                         </p>
                         {auditType === "seo" ? (
                           <p className="mt-1 whitespace-pre-line text-sm text-[var(--on-surface)]/70">
-                            {formatDetails(item.details)}
+                            {renderDetails(item.details)}
                           </p>
                         ) : null}
                       </li>
