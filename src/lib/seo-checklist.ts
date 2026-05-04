@@ -40,15 +40,9 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
   },
   {
     key: "structured-data",
-    title: "Structured Data Validity",
+    title: "Structured Data",
     priority: "high",
-    description: "JSON-LD syntax quality and rich results eligibility.",
-  },
-  {
-    key: "schema-coverage",
-    title: "Schema Coverage by Type",
-    priority: "high",
-    description: "Organization and WebSite JSON-LD coverage.",
+    description: "JSON-LD validity, rich-results eligibility, and entity coverage (Organization/WebSite/FAQPage).",
   },
   {
     key: "canonical",
@@ -94,9 +88,9 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
   },
   {
     key: "social-tags",
-    title: "Open Graph and X Cards",
-    priority: "low",
-    description: "Preview metadata quality for social distribution.",
+    title: "Open Graph Tags",
+    priority: "medium",
+    description: "og:title, og:description, og:image, og:type, og:locale and overall preview-metadata quality.",
   },
   {
     key: "twitter-card-coverage",
@@ -108,7 +102,7 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     key: "alt-text",
     title: "Image Alt Text Coverage",
     priority: "medium",
-    description: "Meaningful alt text and image loading hints.",
+    description: "Meaningful alt text on content images; decorative images use alt=\"\".",
   },
   {
     key: "image-performance",
@@ -135,12 +129,6 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     description: "Blocking CSS/JS patterns that delay first render and interactivity.",
   },
   {
-    key: "asset-caching-compression",
-    title: "Asset Caching and Compression",
-    priority: "medium",
-    description: "Cache-control and compression coverage for core JS/CSS assets.",
-  },
-  {
     key: "duplicate-metadata",
     title: "Duplicate Title and Description",
     priority: "medium",
@@ -163,12 +151,6 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     title: "Content Length and Depth",
     priority: "high",
     description: "Word count, topical coverage, and comparability to competing pages for the query.",
-  },
-  {
-    key: "open-graph",
-    title: "Open Graph Tags",
-    priority: "medium",
-    description: "og:title, og:description, og:image, and related social preview tags.",
   },
   {
     key: "anchor-text-quality",
@@ -199,12 +181,6 @@ export const AUDIT_CHECKLIST: ChecklistTemplate[] = [
     title: "FAQ Block and Long-Tail Capture",
     priority: "medium",
     description: "Presence and quality of on-page FAQ content; optional FAQPage schema support.",
-  },
-  {
-    key: "performance-hints",
-    title: "Page Weight and Performance Signals",
-    priority: "medium",
-    description: "Image count, LCP-relevant assets, and high-level CWV/performance risk signals (no lab score required).",
   },
   {
     key: "trust-signals",

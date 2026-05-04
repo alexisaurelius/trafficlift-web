@@ -50,7 +50,6 @@ const MANUAL_UPLOAD_KEYS = [
   "h2-keyword",
   "heading-hierarchy",
   "structured-data",
-  "schema-coverage",
   "canonical",
   "canonical-consistency",
   "indexability-controls",
@@ -65,7 +64,6 @@ const MANUAL_UPLOAD_KEYS = [
   "internal-linking",
   "internal-links-health",
   "render-blocking-resources",
-  "asset-caching-compression",
   "duplicate-metadata",
 ] as const;
 

@@ -121,7 +121,6 @@ const TOPICS: TopicConfig[] = [
     label: "Technical",
     keys: [
       "structured-data",
-      "schema-coverage",
       "indexability-controls",
       "http-status-chain",
       "canonical",
@@ -142,7 +141,6 @@ const TOPICS: TopicConfig[] = [
     keys: [
       "image-performance",
       "render-blocking-resources",
-      "asset-caching-compression",
     ],
     icon: Gauge,
   },
@@ -327,9 +325,6 @@ export function AuditTopicPanel({
       checks.map((check) => {
         if (check.key === "structured-data" && check.priority === "critical") {
           return { ...check, priority: "high" };
-        }
-        if (check.key === "asset-caching-compression" && check.priority === "high") {
-          return { ...check, priority: "medium" };
         }
         return check;
       }),

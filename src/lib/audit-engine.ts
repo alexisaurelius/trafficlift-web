@@ -61,14 +61,6 @@ type RedirectProbe = {
   challengeDetected: boolean;
 };
 
-type AssetHeaderProbe = {
-  url: string;
-  status: number | null;
-  cacheControl: string;
-  contentEncoding: string;
-  contentType: string;
-};
-
 function redirectStatus(status: number) {
   return status >= 300 && status < 400;
 }
@@ -218,76 +210,6 @@ async function fetchText(url: string) {
     return null;
   } finally {
     clearTimeout(tid);
-  }
-}
-
-const CACHE_STRONG_THRESHOLD_SEC = 86400;
-
-function hasStrongCacheControl(cacheControlHeader: string) {
-  const value = cacheControlHeader.toLowerCase();
-  if (!value) return false;
-  if (value.includes("immutable")) return true;
-  const match = value.match(/max-age=(\d+)/i);
-  if (!match) return false;
-  return Number(match[1]) >= CACHE_STRONG_THRESHOLD_SEC;
-}
-
-function formatCacheControlEvidence(probes: AssetHeaderProbe[]) {
-  return probes
-    .map((p) => `${p.url}\n  Cache-Control: ${p.cacheControl.trim() || "(none)"}`)
-    .join("\n");
-}
-
-function isLikelyCompressibleAsset(url: string, contentTypeHeader: string) {
-  const contentType = contentTypeHeader.toLowerCase();
-  if (
-    /(javascript|ecmascript|css|json|xml|text\/|svg|html)/i.test(contentType) &&
-    !/image\/(png|jpe?g|gif|webp|avif)/i.test(contentType)
-  ) {
-    return true;
-  }
-  return /\.(js|mjs|cjs|css|json|xml|svg)(\?|$)/i.test(url);
-}
-
-async function fetchAssetHeaders(url: string): Promise<AssetHeaderProbe> {
-  const userAgentHeader = { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" };
-  try {
-    const headResponse = await fetch(url, {
-      method: "HEAD",
-      headers: userAgentHeader,
-      cache: "no-store",
-    });
-
-    if (headResponse.ok || ![405, 501].includes(headResponse.status)) {
-      return {
-        url,
-        status: headResponse.status,
-        cacheControl: headResponse.headers.get("cache-control") ?? "",
-        contentEncoding: headResponse.headers.get("content-encoding") ?? "",
-        contentType: headResponse.headers.get("content-type") ?? "",
-      };
-    }
-
-    const fallbackResponse = await fetch(url, {
-      method: "GET",
-      headers: { ...userAgentHeader, range: "bytes=0-0" },
-      cache: "no-store",
-    });
-    return {
-      url,
-      status: fallbackResponse.status,
-      cacheControl: fallbackResponse.headers.get("cache-control") ?? "",
-      contentEncoding: fallbackResponse.headers.get("content-encoding") ?? "",
-      contentType: fallbackResponse.headers.get("content-type") ?? "",
-    };
-  } catch {
-    return {
-      url,
-      status: null,
-      cacheControl: "",
-      contentEncoding: "",
-      contentType: "",
-    };
   }
 }
 
@@ -2022,19 +1944,6 @@ export async function runAuditJob(auditId: string) {
     const preloadStyleCount = $('link[rel="preload"][as="style"]').length;
     const nonPreloadedStylesheetCount = Math.max(stylesheetUrls.length - preloadStyleCount, 0);
 
-    const coreAssetCandidates = [...new Set([...sameOriginScriptUrls, ...stylesheetUrls])].slice(0, 12);
-    const coreAssetHeaderProbes = await Promise.all(coreAssetCandidates.map((url) => fetchAssetHeaders(url)));
-    const successfulCoreAssetProbes = coreAssetHeaderProbes.filter(
-      (probe) => Boolean(probe.status && probe.status >= 200 && probe.status < 400),
-    );
-    const weakCacheAssets = successfulCoreAssetProbes.filter(
-      (probe) => !hasStrongCacheControl(probe.cacheControl),
-    );
-    const uncompressedAssets = successfulCoreAssetProbes.filter(
-      (probe) =>
-        isLikelyCompressibleAsset(probe.url, probe.contentType) && !probe.contentEncoding.trim(),
-    );
-
     const anchorTags = $("a[href]").toArray();
     const internalAnchors = anchorTags.filter((a) => {
       const href = $(a).attr("href") ?? "";
@@ -2273,32 +2182,22 @@ export async function runAuditJob(auditId: string) {
               ? 30
               : duplicateJsonLdBlockCount > 0
                 ? 70
-                : 90,
-        details: `JSON-LD blocks found: ${schemaScripts.length}. Valid blocks: ${validSchemaCount}. Invalid blocks: ${invalidSchemaIndexes.join(", ") || "none"}. Exact-duplicate JSON-LD blocks: ${duplicateJsonLdBlockCount}.`,
+                : hasTopLevelOrganizationSchema && hasTopLevelWebSiteSchema
+                  ? hasFaqSchema
+                    ? 92
+                    : 88
+                  : hasTopLevelOrganizationSchema || hasTopLevelWebSiteSchema
+                    ? 80
+                    : 72,
+        details: `JSON-LD blocks found: ${schemaScripts.length}. Valid blocks: ${validSchemaCount}. Invalid blocks: ${invalidSchemaIndexes.join(", ") || "none"}. Exact-duplicate JSON-LD blocks: ${duplicateJsonLdBlockCount}.\nSchema types detected (all nested levels): ${parsedSchemaTypes.join(", ") || "none"}. Top-level schema types (root/@graph only): ${topLevelSchemaTypes.join(", ") || "none"}. FAQPage present: ${yesNo(hasFaqSchema)}. Top-level Organization: ${yesNo(hasTopLevelOrganizationSchema)}. Top-level WebSite: ${yesNo(hasTopLevelWebSiteSchema)}.`,
         recommendation:
           validSchemaCount !== schemaScripts.length
             ? "Fix invalid JSON-LD syntax to restore rich result eligibility."
             : duplicateJsonLdBlockCount > 0
               ? "Remove duplicate JSON-LD blocks so each schema entity is declared once."
-              : "Structured data is valid; keep JSON-LD aligned with visible content.",
-      },
-      "schema-coverage": {
-        key: "schema-coverage",
-        score:
-          schemaScripts.length === 0
-            ? 60
-            : hasTopLevelOrganizationSchema && hasTopLevelWebSiteSchema
-              ? hasFaqSchema
-                ? 90
-                : 86
-              : hasTopLevelOrganizationSchema || hasTopLevelWebSiteSchema
-                ? 76
-                : 64,
-        details: `Schema types detected (all nested levels): ${parsedSchemaTypes.join(", ") || "none"}. Top-level schema types (root/@graph only): ${topLevelSchemaTypes.join(", ") || "none"}. FAQPage present: ${yesNo(hasFaqSchema)}. Top-level Organization: ${yesNo(hasTopLevelOrganizationSchema)}. Top-level WebSite: ${yesNo(hasTopLevelWebSiteSchema)}.`,
-        recommendation:
-          hasTopLevelOrganizationSchema && hasTopLevelWebSiteSchema
-            ? "Top-level Organization and WebSite schema are present; keep entities synchronized with the live page."
-            : "Consider adding standalone top-level Organization/WebSite JSON-LD where relevant to clarify site-level entities; nested publisher/provider nodes do not satisfy this coverage.",
+              : hasTopLevelOrganizationSchema && hasTopLevelWebSiteSchema
+                ? "Structured data is valid and Organization/WebSite entities are present; keep JSON-LD aligned with visible content."
+                : "Structured data is valid. Consider adding standalone top-level Organization/WebSite JSON-LD to clarify site-level entities; nested publisher/provider nodes don't satisfy this coverage.",
       },
       canonical: {
         key: "canonical",
@@ -2437,7 +2336,7 @@ export async function runAuditJob(auditId: string) {
           ogDescription,
         )}", og:image="${displayValue(ogImage)}".`,
         recommendation:
-          "Set Open Graph and X card tags for stronger link previews.",
+          "Set complete Open Graph tags (og:title, og:description, og:image, og:type, og:locale) for stronger link previews.",
       },
       "twitter-card-coverage": {
         key: "twitter-card-coverage",
@@ -2532,27 +2431,6 @@ export async function runAuditJob(auditId: string) {
               ? "For CSS, consider inlining critical CSS and loading non-critical styles with media tricks or deferred bundles."
               : "No parser-blocking scripts were detected.",
       },
-      "asset-caching-compression": {
-        key: "asset-caching-compression",
-        score:
-          successfulCoreAssetProbes.length === 0
-            ? 72
-            : weakCacheAssets.length === 0 && uncompressedAssets.length === 0
-              ? 92
-              : weakCacheAssets.length <= 1 && uncompressedAssets.length <= 1
-                ? 82
-                : weakCacheAssets.length + uncompressedAssets.length <= 3
-                  ? 64
-                  : 42,
-        details: `Core assets checked: ${successfulCoreAssetProbes.length}/${coreAssetCandidates.length}. Strong cache threshold: max-age≥${CACHE_STRONG_THRESHOLD_SEC}s (1 day) or Cache-Control includes "immutable".
-
-Weak cache-control (below threshold or missing max-age):
-${weakCacheAssets.length ? formatCacheControlEvidence(weakCacheAssets) : "(none)"}
-
-Uncompressed text assets (${uncompressedAssets.length}): ${formatList(uncompressedAssets.map((asset) => asset.url), "none", 3)}.`,
-        recommendation:
-          `Prefer long max-age (often ≥31536000 for hashed/versioned filenames) plus compression for text responses.`,
-      },
       "internal-linking": {
         key: "internal-linking",
         score: internalLinks >= 5 ? 85 : internalLinks >= 2 ? 65 : 45,
@@ -2612,8 +2490,6 @@ Uncompressed text assets (${uncompressedAssets.length}): ${formatList(uncompress
       "indexability-controls": hasNoindex ? "critical" : "high",
       "http-status-chain": pageProbe.hops >= 3 || pageProbe.usedTemporaryRedirect ? "high" : "medium",
       "render-blocking-resources": renderBlockingScripts.length >= 3 ? "critical" : "high",
-      "asset-caching-compression":
-        weakCacheAssets.length + uncompressedAssets.length >= 4 ? "high" : "medium",
     };
 
     const weighted = AUDIT_CHECKLIST.map((item) => {
