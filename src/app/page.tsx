@@ -165,13 +165,13 @@ export default async function Home() {
 
           <div className="mt-8 grid gap-6 md:grid-cols-[1fr_1fr_1fr]">
             <article className="min-h-[405px] rounded-2xl bg-[var(--surface-container-low)] p-7">
-              <h3 className="font-manrope text-[24px] font-extrabold leading-tight text-[var(--primary)]">SEO Agencies</h3>
+              <h3 className="font-manrope text-[24px] font-extrabold leading-tight text-[var(--primary)]">Manual Audits</h3>
               <p className="mt-1 text-sm font-bold uppercase tracking-wide text-[var(--on-surface)]/45">
                 Higher cost and slower delivery
               </p>
               <ul className="mt-6 space-y-4 text-[16px] text-[var(--on-surface)]/82">
                 {[
-                  "Expensive audits ($1,000+)",
+                  "Expensive audits ($500+)",
                   "Longer delivery times (2-4 weeks)",
                   "Long onboarding flows",
                   "Reports may be complex",
