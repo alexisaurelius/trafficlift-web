@@ -170,13 +170,13 @@ export function DashboardAuditsPanel({
                     <div className="mt-1 flex items-center justify-between gap-3">
                       <p className="text-xs text-[var(--on-surface)]/65">
                         {isActive
-                          ? `Manual review in progress. Unlocks in ~${Math.max(0, Math.ceil((MANUAL_REVIEW_UNLOCK_MS - elapsedMs) / 3_600_000))}h.`
+                          ? "Review in progress. Unlocks within 24h. An email notification will be sent when complete."
                           : audit.status === "FAILED"
                             ? (audit.errorMessage ?? "Audit failed.")
                             : "Ready to open your audit."}
                       </p>
                       <p className="text-xs font-semibold text-[var(--primary)]/76 transition group-hover:text-[var(--primary)]">
-                        {isUnlockReady ? "View report →" : "Locked until timer ends"}
+                        {isUnlockReady ? "View report →" : ""}
                       </p>
                     </div>
                   </div>
