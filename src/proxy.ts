@@ -19,9 +19,23 @@ export default clerkMiddleware(async (auth, req) => {
   if (isPublicAdminApi(req)) {
     return;
   }
-  if (isProtectedRoute(req)) {
+  if (!isProtectedRoute(req)) {
+    return;
+  }
+  const isApi = req.nextUrl.pathname.startsWith("/api/");
+  const { userId } = await auth();
+  if (!userId) {
+    if (isApi) {
+      // Returning a JSON 401 instead of a 307 redirect prevents fetch() callers
+      // (e.g. the admin upload form sending a PATCH with a body) from following
+      // the redirect to /sign-in and trying to parse the resulting HTML.
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    }
     const origin = req.nextUrl.origin;
-    await auth.protect({ unauthenticatedUrl: `${origin}/sign-in` });
+    return Response.redirect(`${origin}/sign-in`, 307);
   }
 });
 

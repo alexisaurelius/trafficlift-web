@@ -45,10 +45,26 @@ export function isAdminEmail(email: string) {
   return configured.includes(email.trim().toLowerCase());
 }
 
-export async function requireUserRecord() {
+type UnauthenticatedHandling = "redirect" | "throw";
+
+class UnauthorizedError extends Error {
+  constructor(message = "Unauthorized") {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
+
+function handleMissingAuth(reason: string, mode: UnauthenticatedHandling): never {
+  if (mode === "redirect") {
+    redirect(`/sign-in${reason ? `?error=${reason}` : ""}`);
+  }
+  throw new UnauthorizedError(reason || "Unauthorized");
+}
+
+async function loadOrCreateUserRecord(mode: UnauthenticatedHandling): Promise<UserWithSub> {
   const { userId } = await auth();
   if (!userId) {
-    redirect("/sign-in");
+    handleMissingAuth("", mode);
   }
 
   let existingByClerkId = await prisma.user.findUnique({
@@ -65,7 +81,7 @@ export async function requireUserRecord() {
 
   const clerkUser = await currentUser();
   if (!clerkUser?.primaryEmailAddress?.emailAddress) {
-    redirect("/sign-in?error=missing_user_email");
+    handleMissingAuth("missing_user_email", mode);
   }
 
   const email = clerkUser.primaryEmailAddress.emailAddress;
@@ -184,8 +200,31 @@ export async function requireUserRecord() {
   }
 }
 
+/** Page-level helper. Redirects unauthenticated users to /sign-in. */
+export async function requireUserRecord() {
+  return loadOrCreateUserRecord("redirect");
+}
+
+/**
+ * API-level helper. Throws an "Unauthorized" Error instead of triggering a
+ * Next.js redirect. API route handlers catch this and return JSON 401, which
+ * keeps fetch() callers (e.g. PATCH from the admin panel) from following a
+ * redirect to /sign-in and trying to parse the resulting HTML.
+ */
+export async function requireUserRecordOrThrow() {
+  return loadOrCreateUserRecord("throw");
+}
+
 export async function requireAdminUserRecord() {
   const user = await requireUserRecord();
+  if (!isAdminEmail(user.email)) {
+    throw new Error("Forbidden");
+  }
+  return user;
+}
+
+export async function requireAdminUserRecordOrThrow() {
+  const user = await requireUserRecordOrThrow();
   if (!isAdminEmail(user.email)) {
     throw new Error("Forbidden");
   }

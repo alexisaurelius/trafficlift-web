@@ -180,24 +180,37 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
+        credentials: "same-origin",
       });
-      const data = await response.json();
-      if (!response.ok) {
-        setMessage(data.error ?? "Failed to save audit.");
-      } else {
-        const email = data.email as { sent?: boolean; reason?: string } | null | undefined;
-        const emailNote =
-          email && typeof email === "object" && "sent" in email
-            ? email.sent
-              ? " Customer email sent."
-              : ` Customer email skipped (${email.reason ?? "unknown"}).`
-            : "";
-        setMessage(`Saved.${emailNote}`);
-        await refreshList();
-        await loadSelectedAudit(selectedAuditId);
+      // Surface real error bodies (including non-JSON HTML responses from
+      // middleware redirects) so we don't drop them as "Request failed."
+      const rawText = await response.text();
+      let parsed: Record<string, unknown> | null = null;
+      try {
+        parsed = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : null;
+      } catch {
+        parsed = null;
       }
-    } catch {
-      setMessage("Request failed.");
+      if (!response.ok) {
+        const message =
+          (parsed && typeof parsed.error === "string" ? parsed.error : null) ??
+          (rawText && rawText.length < 400 ? rawText : `HTTP ${response.status}`);
+        setMessage(`Save failed: ${message}`);
+        return;
+      }
+      const email = parsed?.email as { sent?: boolean; reason?: string } | null | undefined;
+      const emailNote =
+        email && typeof email === "object" && "sent" in email
+          ? email.sent
+            ? " Customer email sent."
+            : ` Customer email skipped (${email.reason ?? "unknown"}).`
+          : "";
+      setMessage(`Saved.${emailNote}`);
+      await refreshList();
+      await loadSelectedAudit(selectedAuditId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Network error.";
+      setMessage(`Request failed: ${message}`);
     } finally {
       setIsSaving(false);
     }

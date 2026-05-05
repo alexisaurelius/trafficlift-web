@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { PlanType } from "@prisma/client";
 import { z } from "zod";
-import { requireUserRecord } from "@/lib/auth-user";
+import { requireUserRecordOrThrow } from "@/lib/auth-user";
 import { prisma } from "@/lib/prisma";
 import { getStripeClient } from "@/lib/stripe";
 
@@ -18,7 +18,7 @@ const stripePrices: Record<PlanType, string | undefined> = {
 
 export async function POST(req: Request) {
   try {
-    const user = await requireUserRecord();
+    const user = await requireUserRecordOrThrow();
     const body = await req.json();
     const parsed = checkoutSchema.safeParse(body);
     if (!parsed.success) {
@@ -53,6 +53,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ url: checkout.url });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to start checkout";
+    if (message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

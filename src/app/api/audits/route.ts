@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuditStatus } from "@prisma/client";
 import { z } from "zod";
-import { requireUserRecord } from "@/lib/auth-user";
+import { requireUserRecordOrThrow } from "@/lib/auth-user";
 import { consumeCredit, canConsumeCredit } from "@/lib/credits";
 import { sendManualAuditAlert } from "@/lib/manual-audit-alert";
 
@@ -20,7 +20,7 @@ const MAX_ACTIVE_AUDITS_PER_USER = Number(process.env.MAX_ACTIVE_AUDITS_PER_USER
 
 export async function GET(req: Request) {
   try {
-    const user = await requireUserRecord();
+    const user = await requireUserRecordOrThrow();
     const searchParams = new URL(req.url).searchParams;
     const typeParam = searchParams.get("type");
     const where =
@@ -52,7 +52,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const user = await requireUserRecord();
+    const user = await requireUserRecordOrThrow();
     const body = await req.json();
     const parsed = createAuditSchema.safeParse(body);
     if (!parsed.success) {

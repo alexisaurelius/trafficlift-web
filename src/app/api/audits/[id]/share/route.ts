@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import { requireUserRecord } from "@/lib/auth-user";
+import { requireUserRecordOrThrow } from "@/lib/auth-user";
 import { prisma } from "@/lib/prisma";
 
 function buildShareToken() {
@@ -12,7 +12,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const user = await requireUserRecord();
+    const user = await requireUserRecordOrThrow();
     const { id } = await params;
     const audit = await prisma.audit.findFirst({
       where: { id, userId: user.id },

@@ -1,7 +1,7 @@
 import { AuditStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAdminUserRecord } from "@/lib/auth-user";
+import { requireAdminUserRecordOrThrow } from "@/lib/auth-user";
 import { prisma } from "@/lib/prisma";
 import { sendAuditPublishedEmail } from "@/lib/audit-published-email";
 
@@ -33,7 +33,7 @@ const updateAuditSchema = z.object({
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminUserRecord();
+    await requireAdminUserRecordOrThrow();
     const { id } = await params;
     const audit = await prisma.audit.findUnique({
       where: { id },
@@ -60,7 +60,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminUserRecord();
+    await requireAdminUserRecordOrThrow();
     const body = await req.json();
     const parsed = updateAuditSchema.safeParse(body);
     if (!parsed.success) {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireUserRecord } from "@/lib/auth-user";
+import { requireUserRecordOrThrow } from "@/lib/auth-user";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(
@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const user = await requireUserRecord();
+    const user = await requireUserRecordOrThrow();
     const { id } = await params;
     const audit = await prisma.audit.findFirst({
       where: {

@@ -1,7 +1,7 @@
 import { AuditStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAdminUserRecord } from "@/lib/auth-user";
+import { requireAdminUserRecordOrThrow } from "@/lib/auth-user";
 import { prisma } from "@/lib/prisma";
 
 const listSchema = z.object({
@@ -12,7 +12,7 @@ const listSchema = z.object({
 
 export async function GET(req: Request) {
   try {
-    await requireAdminUserRecord();
+    await requireAdminUserRecordOrThrow();
     const url = new URL(req.url);
     const parsed = listSchema.safeParse({
       q: url.searchParams.get("q") ?? "",
