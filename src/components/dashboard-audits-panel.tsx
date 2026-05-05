@@ -127,7 +127,8 @@ export function DashboardAuditsPanel({
               audits.map((audit) => {
                 const progress = estimateProgress(audit);
                 const elapsedMs = Math.max(0, Date.now() - new Date(audit.createdAt).getTime());
-                const isUnlockReady = elapsedMs >= MANUAL_REVIEW_UNLOCK_MS || audit.status === "FAILED";
+                const isUnlockReady =
+                  audit.status === "COMPLETED" || audit.status === "FAILED" || elapsedMs >= MANUAL_REVIEW_UNLOCK_MS;
                 const isActive = !isUnlockReady;
                 const completedPercent = audit.score ?? 100;
                 const isCro = isCroAuditKeyword(audit.targetKeyword);
