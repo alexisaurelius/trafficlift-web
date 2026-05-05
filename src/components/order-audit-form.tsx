@@ -110,7 +110,7 @@ export function OrderAuditForm({ onCreated, auditType = "seo" }: OrderAuditFormP
       <div className="rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_8%,white)] bg-[var(--surface)] px-3.5 py-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">What happens next</p>
         <p className="mt-1 text-sm text-[var(--on-surface)]">
-          After submission, your request is emailed to our team. We manually prepare your report and upload it to your dashboard within 24 hours.
+          After submission, our AI agent audits your site, then our team reviews and uploads your report to your dashboard within 24 hours.
         </p>
       </div>
       <div className="mt-auto rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_8%,white)] bg-[var(--surface)] px-3.5 py-3">
