@@ -30,12 +30,19 @@ function statusPill(status: AuditItemStatus) {
   return "bg-amber-100 text-amber-800";
 }
 
-function statusLabel(status: AuditItemStatus, raw: string) {
-  if (raw && raw.trim()) return raw.trim();
+/** Short label for the colored pill only — never the full uploaded Status line. */
+function statusPillLabel(status: AuditItemStatus) {
   if (status === "good") return "Good";
   if (status === "critical") return "Critical";
   if (status === "verify") return "Verify";
   return "Needs Improvement";
+}
+
+/** Full text for the Status row: raw from the audit when present, else canonical. */
+function statusDetailText(status: AuditItemStatus, raw: string) {
+  const trimmed = raw.trim();
+  if (trimmed) return trimmed;
+  return statusPillLabel(status);
 }
 
 function sectionStyle(status: AuditItemStatus) {
@@ -146,7 +153,8 @@ export function AuditSectionsPanel({
         ) : (
           <ul className="space-y-3">
             {visibleItems.map((item, index) => {
-              const label = statusLabel(item.status, item.statusRaw);
+              const pillText = statusPillLabel(item.status);
+              const statusDetail = statusDetailText(item.status, item.statusRaw);
               return (
                 <li
                   key={`${item.section}-${item.title}-${index}`}
@@ -159,7 +167,7 @@ export function AuditSectionsPanel({
                     <span
                       className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${statusPill(item.status)}`}
                     >
-                      {label}
+                      {pillText}
                     </span>
                   </div>
                   <h3 className="mt-2 font-manrope text-base font-extrabold text-[var(--primary)]">
@@ -178,7 +186,7 @@ export function AuditSectionsPanel({
                     </p>
                   ) : null}
                   <p className="mt-1.5 text-sm text-[var(--on-surface)]/85">
-                    <strong className="font-bold">Status:</strong> {label}
+                    <strong className="font-bold">Status:</strong> {statusDetail}
                   </p>
                 </li>
               );
