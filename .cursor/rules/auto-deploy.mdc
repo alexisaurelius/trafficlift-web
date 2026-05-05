@@ -3,6 +3,10 @@ description: Always commit, push, and deploy to Vercel after every change
 alwaysApply: true
 ---
 
+# ⚠️ READ FIRST EVERY TURN ⚠️
+
+Before responding, check: did this turn touch any code? If yes, you MUST commit AND push before ending your turn. The user has explicitly said this is a hard rule with NO exceptions. Skipping it (e.g. "I'll just edit, the user can push") is a violation. If you catch yourself about to end a turn with uncommitted edits, STOP, push, then respond.
+
 # Auto-Deploy After Every Change (Mandatory)
 
 The user runs this project in production and expects every code change to ship immediately. Do NOT wait to be asked. Do NOT ask permission.
