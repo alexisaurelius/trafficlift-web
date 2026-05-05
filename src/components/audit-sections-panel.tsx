@@ -26,6 +26,7 @@ const FILTERS: Array<{
 function statusPill(status: AuditItemStatus) {
   if (status === "good") return "bg-emerald-100 text-emerald-800";
   if (status === "critical") return "bg-rose-100 text-rose-800";
+  if (status === "verify") return "bg-blue-100 text-blue-800";
   return "bg-amber-100 text-amber-800";
 }
 
@@ -33,6 +34,7 @@ function statusLabel(status: AuditItemStatus, raw: string) {
   if (raw && raw.trim()) return raw.trim();
   if (status === "good") return "Good";
   if (status === "critical") return "Critical";
+  if (status === "verify") return "Verify";
   return "Needs Improvement";
 }
 
@@ -43,6 +45,9 @@ function sectionStyle(status: AuditItemStatus) {
   if (status === "critical") {
     return "border-rose-200 bg-rose-50/60";
   }
+  if (status === "verify") {
+    return "border-blue-200 bg-blue-50/50";
+  }
   return "border-amber-200 bg-amber-50/40";
 }
 
@@ -50,12 +55,14 @@ function sectionLabelFor(id: AuditSectionId) {
   return AUDIT_SECTIONS.find((s) => s.id === id)?.shortLabel ?? id;
 }
 
-// Items are sorted with critical first, then needs-improvement, then good — so
-// the most actionable findings are surfaced at the top of every filter view.
+// Items are sorted with critical first, then needs-improvement, then verify,
+// then good — so the most actionable findings are surfaced at the top of every
+// filter view.
 function statusRank(status: AuditItemStatus) {
   if (status === "critical") return 0;
   if (status === "needs-improvement") return 1;
-  return 2;
+  if (status === "verify") return 2;
+  return 3;
 }
 
 function sortItems(items: ParsedAuditItem[]) {

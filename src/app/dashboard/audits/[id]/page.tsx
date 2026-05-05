@@ -72,18 +72,23 @@ export default async function AuditDetailsPage({
         </div>
         <div className="mt-4">
           <h1 className="font-manrope text-3xl font-extrabold tracking-tight text-[var(--primary)]">Audit Report</h1>
-          <p className="mt-2 text-sm text-[var(--on-surface)]/70 break-all">{audit.targetUrl}</p>
+          <p className="mt-2 text-sm text-[var(--on-surface)]/70 break-all">
+            <span className="font-semibold text-[var(--primary)]">Audited page:</span> {audit.targetUrl}
+          </p>
+          {auditType === "seo" && audit.targetKeyword.trim() ? (
+            <p className="mt-1 text-sm text-[var(--on-surface)]/70 break-words">
+              <span className="font-semibold text-[var(--primary)]">Keywords:</span> {audit.targetKeyword}
+            </p>
+          ) : null}
           <p className="mt-1 text-sm text-[var(--on-surface)]/70">
-            Audited on:{" "}
-            <span className="font-semibold">
-              {new Intl.DateTimeFormat("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              }).format(auditedOn)}
-            </span>
+            <span className="font-semibold text-[var(--primary)]">Audited on:</span>{" "}
+            {new Intl.DateTimeFormat("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            }).format(auditedOn)}
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-[var(--surface-container-low)] px-3 py-1 text-xs font-bold uppercase tracking-wide">
@@ -98,6 +103,11 @@ export default async function AuditDetailsPage({
             {counts.critical > 0 ? (
               <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-700">
                 {counts.critical} Critical
+              </span>
+            ) : null}
+            {counts.verify > 0 ? (
+              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-blue-700">
+                {counts.verify} Verify
               </span>
             ) : null}
           </div>

@@ -1,5 +1,3 @@
-import { Sparkles } from "lucide-react";
-
 // Detect numbered list lines like "1. ..." / "2. ..." so we can render them as
 // a proper ordered list. Falls back to a paragraph block otherwise.
 function parseSummary(summary: string): { kind: "list"; items: string[] } | { kind: "text"; value: string } {
@@ -25,10 +23,7 @@ export function AuditSummaryCard({ summary }: { summary: string | null }) {
   return (
     <article className="rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-6 shadow-[0_12px_40px_rgba(0,22,57,0.06)]">
       <div className="flex items-center gap-2">
-        <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[color:color-mix(in_oklab,var(--primary)_12%,white)] text-[var(--primary)]">
-          <Sparkles size={18} />
-        </span>
-        <h2 className="font-manrope text-xl font-extrabold text-[var(--primary)]">Summary</h2>
+        <h2 className="font-manrope text-xl font-extrabold text-[var(--primary)]">Top Priorities</h2>
       </div>
       {parsed.kind === "list" ? (
         <ol className="mt-4 space-y-2">

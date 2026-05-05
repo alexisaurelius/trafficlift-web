@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "TrafficLift - AI SEO Audits On Demand",
+  title: "AI SEO Audits On Demand | TrafficLift",
   alternates: {
     canonical: "https://www.trafficlift.ai",
   },
@@ -100,7 +100,7 @@ export default async function Home() {
             <p className="mx-auto inline-flex items-center gap-2 rounded-full bg-[#bde9cb] px-4 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#186c39]">
               <span className="inline-block h-2 w-2 rounded-full bg-[#1bb65f]" /> AI-Powered Insights + Human Expertise
             </p>
-            <h1 className="sr-only">TrafficLift - AI SEO Audits On Demand</h1>
+            <h1 className="sr-only">AI SEO Audits On Demand</h1>
             <h2 className="font-manrope relative mx-auto mt-8 max-w-3xl text-4xl font-extrabold leading-[1.06] tracking-tight text-[var(--primary)] md:text-6xl">
               Find the Issues That 
               <br />

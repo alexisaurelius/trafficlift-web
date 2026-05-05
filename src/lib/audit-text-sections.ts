@@ -7,7 +7,7 @@
 export const AUDIT_SECTION_IDS = ["on-page", "tech-perf", "authority"] as const;
 export type AuditSectionId = (typeof AUDIT_SECTION_IDS)[number];
 
-export type AuditItemStatus = "good" | "needs-improvement" | "critical";
+export type AuditItemStatus = "good" | "needs-improvement" | "critical" | "verify";
 
 export type ParsedAuditItem = {
   section: AuditSectionId;
@@ -39,6 +39,15 @@ export const AUDIT_SECTIONS: AuditSectionMeta[] = [
 export function classifyStatus(raw: string): AuditItemStatus {
   const normalized = raw.trim().toLowerCase();
   if (!normalized) return "needs-improvement";
+  // Check `verify` first so phrases like "needs verification" or "manual review"
+  // aren't accidentally classified as needs-improvement / critical.
+  if (
+    /(^|[^a-z])(verify|verification|manual\s+review|manual\s+check|to\s+verify|review\s+manually)([^a-z]|$)/.test(
+      normalized,
+    )
+  ) {
+    return "verify";
+  }
   if (/(^|[^a-z])(good|pass(ed)?|ok|excellent)([^a-z]|$)/.test(normalized)) {
     return "good";
   }
@@ -192,18 +201,21 @@ export function countStatuses(parsed: ParsedAuditSections): {
   good: number;
   needsImprovement: number;
   critical: number;
+  verify: number;
   total: number;
 } {
   const all = [...parsed.onPage, ...parsed.techPerf, ...parsed.authority];
   let good = 0;
   let needsImprovement = 0;
   let critical = 0;
+  let verify = 0;
   for (const item of all) {
     if (item.status === "good") good += 1;
     else if (item.status === "critical") critical += 1;
+    else if (item.status === "verify") verify += 1;
     else needsImprovement += 1;
   }
-  return { good, needsImprovement, critical, total: all.length };
+  return { good, needsImprovement, critical, verify, total: all.length };
 }
 
 // Sample text used by the admin "Insert example" button to seed the textarea
