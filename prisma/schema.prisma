@@ -87,21 +87,24 @@ model CreditLedger {
 }
 
 model Audit {
-  id             String      @id @default(cuid())
-  userId         String
-  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  targetUrl      String
-  targetKeyword  String
-  shareToken     String?     @unique
-  score          Int?
-  status         AuditStatus @default(QUEUED)
-  summary        String?
-  reportMarkdown String?
-  errorMessage   String?
-  completedAt    DateTime?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-  checks         AuditCheck[]
+  id                 String      @id @default(cuid())
+  userId             String
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetUrl          String
+  targetKeyword      String
+  shareToken         String?     @unique
+  score              Int?
+  status             AuditStatus @default(QUEUED)
+  summary            String?
+  reportMarkdown     String?
+  onPageContent      String?
+  techPerfContent    String?
+  authorityContent   String?
+  errorMessage       String?
+  completedAt        DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  checks             AuditCheck[]
 
   @@index([userId, createdAt])
 }

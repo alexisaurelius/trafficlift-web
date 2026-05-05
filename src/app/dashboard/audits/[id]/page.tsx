@@ -1,84 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { load } from "cheerio";
 import { requireUserRecord } from "@/lib/auth-user";
 import { prisma } from "@/lib/prisma";
-import { ReportMarkdownPanel } from "@/components/report-markdown-panel";
-import { AuditCheckResults } from "@/components/audit-check-results";
-import { AuditTopicPanel } from "@/components/audit-topic-panel";
+import { AuditSectionsPanel } from "@/components/audit-sections-panel";
 import { ShareAuditButton } from "@/components/share-audit-button";
-import {
-  formatKeywordCandidatesAsQuotedList,
-  parseKeywordCandidates,
-  textContainsAllExactKeywords,
-} from "@/lib/keyword-match";
-import { AUDIT_CHECKLIST } from "@/lib/seo-checklist";
-import { CRO_AUDIT_CHECKLIST } from "@/lib/cro-checklist";
 import { auditTypeFromKeyword } from "@/lib/audit-mode";
-import { orderChecksForDisplay } from "@/lib/audit-check-order";
-const LIVE_KEYWORD_FETCH_TIMEOUT_MS = 900;
+import { countStatuses, parseAuditSections } from "@/lib/audit-text-sections";
 
 function getScoreContext(score: number) {
-  if (score >= 85) return { label: "Excellent", note: "Strong SEO baseline with minor refinements needed." };
+  if (score >= 85) return { label: "Excellent", note: "Strong baseline with minor refinements needed." };
   if (score >= 70) return { label: "Good", note: "Good performance, but important opportunities remain." };
-  if (score >= 55) return { label: "Needs Work", note: "Several issues are likely limiting rankings." };
-  return { label: "Weak", note: "Major SEO issues are likely suppressing visibility." };
-}
-
-function getCroScoreContext(score: number) {
-  if (score >= 85) return { label: "Excellent", note: "Strong conversion baseline with minor refinements needed." };
-  if (score >= 70) return { label: "Good", note: "Good conversion setup, but meaningful lift opportunities remain." };
-  if (score >= 55) return { label: "Needs Work", note: "Several friction points are likely reducing conversions." };
-  return { label: "Weak", note: "Major conversion blockers detected. Prioritize critical fixes first." };
-}
-
-
-function effectivePriorityForCheck(check: { key: string; priority: string; details?: string | null }) {
-  if (check.key === "canonical") return "critical";
-  return check.priority;
-}
-
-function priorityRank(priority: string) {
-  if (priority === "critical") return 4;
-  if (priority === "high") return 3;
-  if (priority === "medium") return 2;
-  return 1;
-}
-
-function croPenaltyForStatus(priority: string, status: string) {
-  const basePenaltyByPriority: Record<string, number> = {
-    critical: 20,
-    high: 10,
-    medium: 5,
-    low: 2,
-  };
-  const base = basePenaltyByPriority[priority] ?? 2;
-  if (status === "fail") return base;
-  if (status === "warn") return base / 2;
-  return 0;
-}
-
-async function fetchLiveKeywordCoverage(targetUrl: string, keywordCandidates: string[]) {
-  try {
-    const response = await fetch(targetUrl, {
-      headers: { "user-agent": "TrafficLiftBot/1.0 (+https://trafficlift.app)" },
-      cache: "no-store",
-      signal: AbortSignal.timeout(LIVE_KEYWORD_FETCH_TIMEOUT_MS),
-    });
-    if (!response.ok) return null;
-    const html = await response.text();
-    const $ = load(html);
-    const currentTitle = $("head > title").first().text().trim() || $("title").first().text().trim();
-    const currentH1 = $("h1").first().text().trim();
-    return {
-      currentTitle,
-      currentH1,
-      titleHasKeyword: textContainsAllExactKeywords(currentTitle, keywordCandidates),
-      h1HasKeyword: textContainsAllExactKeywords(currentH1, keywordCandidates),
-    };
-  } catch {
-    return null;
-  }
+  if (score >= 55) return { label: "Needs Work", note: "Several issues are likely limiting results." };
+  return { label: "Weak", note: "Major issues are likely suppressing visibility." };
 }
 
 export default async function AuditDetailsPage({
@@ -90,93 +23,25 @@ export default async function AuditDetailsPage({
   const { id } = await params;
   const audit = await prisma.audit.findFirst({
     where: { id, userId: user.id },
-    include: { checks: { orderBy: { createdAt: "asc" } } },
   });
 
   if (!audit) {
     notFound();
   }
 
-  const keywordCandidates = parseKeywordCandidates(audit.targetKeyword);
-  const fallbackCandidates = keywordCandidates.length > 0 ? keywordCandidates : [audit.targetKeyword.toLowerCase().trim()];
-  const targetKeywordList = formatKeywordCandidatesAsQuotedList(fallbackCandidates);
   const auditType = auditTypeFromKeyword(audit.targetKeyword);
-  const liveKeywordCoverage =
-    auditType === "seo"
-      ? await fetchLiveKeywordCoverage(audit.targetUrl, fallbackCandidates)
-      : null;
-  const checklistTemplate = auditType === "cro" ? CRO_AUDIT_CHECKLIST : AUDIT_CHECKLIST;
-  const checksForReport = orderChecksForDisplay(audit.checks, checklistTemplate);
+  const parsed = parseAuditSections({
+    onPageContent: audit.onPageContent,
+    techPerfContent: audit.techPerfContent,
+    authorityContent: audit.authorityContent,
+  });
+  const counts = countStatuses(parsed);
 
   const score = audit.score ?? 0;
-  const checksWithEffectivePriority = checksForReport.map((check) => {
-    let priority = effectivePriorityForCheck(check);
-    let status: "pass" | "fail" | "warn" | "skipped" =
-      check.status === "skipped"
-        ? "skipped"
-        : check.status === "warn"
-          ? "warn"
-          : check.status === "pass"
-            ? "pass"
-            : "fail";
-    let details = check.details;
-    let recommendation = check.recommendation;
-
-    if (check.key === "title-tag" && liveKeywordCoverage && !liveKeywordCoverage.titleHasKeyword && status !== "skipped") {
-      priority = "critical";
-      status = "fail";
-      details = `Current title: "${liveKeywordCoverage.currentTitle || "(empty)"}".\nTarget keyword(s): ${targetKeywordList}`;
-      recommendation = `Include one target keyword naturally in the title and keep it 50-60 characters.`;
-    }
-
-    if (check.key === "h1-count" && liveKeywordCoverage && !liveKeywordCoverage.h1HasKeyword && status !== "skipped") {
-      priority = "critical";
-      status = "fail";
-      details = `Current H1: "${liveKeywordCoverage.currentH1 || "(empty)"}".\nTarget keyword(s): ${targetKeywordList}`;
-      recommendation = `Use exactly one H1 and include one target keyword naturally.`;
-    }
-
-    return {
-      ...check,
-      priority,
-      status,
-      details,
-      recommendation,
-    };
-  });
-  const passChecks = checksWithEffectivePriority.filter((check) => check.status === "pass");
-  const warnChecks = checksWithEffectivePriority.filter((check) => check.status === "warn");
-  const failChecks = checksWithEffectivePriority.filter((check) => check.status === "fail");
-  const skippedChecks = checksWithEffectivePriority.filter((check) => check.status === "skipped");
-  const topCroRisks =
-    auditType === "cro"
-      ? [...failChecks]
-          .filter((check) => check.priority === "critical" || check.priority === "high")
-          .sort((a, b) => priorityRank(b.priority) - priorityRank(a.priority))
-          .slice(0, 7)
-      : [];
-  const hiddenCroRiskCount =
-    auditType === "cro"
-      ? Math.max(
-          failChecks.filter((check) => check.priority === "critical" || check.priority === "high").length - topCroRisks.length,
-          0,
-        )
-      : 0;
-  const scoreContext = auditType === "cro" ? getCroScoreContext(score) : getScoreContext(score);
+  const scoreContext = getScoreContext(score);
   const scoreColor = score >= 80 ? "#22c55e" : score >= 60 ? "#f59e0b" : "#ef4444";
-  const croScoreDeductions =
-    auditType === "cro"
-      ? checksWithEffectivePriority
-          .map((check) => ({
-            title: check.title,
-            priority: check.priority,
-            status: check.status,
-            penalty: croPenaltyForStatus(check.priority, check.status),
-          }))
-          .filter((entry) => entry.penalty > 0)
-      : [];
-  const croTotalDeduction = croScoreDeductions.reduce((sum, entry) => sum + entry.penalty, 0);
   const auditedOn = audit.completedAt ?? audit.updatedAt ?? audit.createdAt;
+  const hasContent = counts.total > 0;
 
   return (
     <section className="space-y-6">
@@ -194,10 +59,10 @@ export default async function AuditDetailsPage({
           <p className="mt-1 whitespace-pre-wrap">{audit.errorMessage ?? "Unknown error. Try again or use a different URL."}</p>
         </div>
       )}
-      {audit.status === "COMPLETED" && checksWithEffectivePriority.length === 0 && !audit.reportMarkdown && (
+      {audit.status === "COMPLETED" && !hasContent && (
         <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 text-sm text-rose-900">
-          <p className="font-semibold">No check rows stored</p>
-          <p className="mt-1">Re-run the audit. If this persists, the job may have been interrupted before saving results.</p>
+          <p className="font-semibold">No audit findings uploaded yet</p>
+          <p className="mt-1">Your specialist is still finalising the report. Refresh shortly.</p>
         </div>
       )}
       <header className="rounded-2xl border border-[color:color-mix(in_oklab,var(--primary)_9%,white)] bg-[var(--surface-container-lowest)] p-6 shadow-[0_12px_40px_rgba(0,22,57,0.06)]">
@@ -236,15 +101,6 @@ export default async function AuditDetailsPage({
           <div>
             <h1 className="font-manrope text-3xl font-extrabold tracking-tight text-[var(--primary)]">Audit Report</h1>
             <p className="mt-2 text-sm text-[var(--on-surface)]/70">{audit.targetUrl}</p>
-            {auditType === "seo" ? (
-              <p className="mt-1 text-sm text-[var(--on-surface)]/70">
-                Target keyword(s): <span className="font-semibold">{targetKeywordList}</span>
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-[var(--on-surface)]/70">
-                Audit type: <span className="font-semibold">CRO Audit</span>
-              </p>
-            )}
             <p className="mt-1 text-sm text-[var(--on-surface)]/70">
               Audited on:{" "}
               <span className="font-semibold">
@@ -262,108 +118,31 @@ export default async function AuditDetailsPage({
                 {audit.status}
               </span>
               <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-700">
-                {passChecks.length} Passes
+                {counts.good} Good
               </span>
-              <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-700">
-                {failChecks.length} Fails
+              <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-700">
+                {counts.needsImprovement} Needs Improvement
               </span>
-              {auditType === "seo" && skippedChecks.length > 0 ? (
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-700">
-                  {skippedChecks.length} Skipped
-                </span>
-              ) : null}
-              {auditType === "cro" ? (
-                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-700">
-                  {warnChecks.length} Warns
+              {counts.critical > 0 ? (
+                <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-700">
+                  {counts.critical} Critical
                 </span>
               ) : null}
             </div>
-            {auditType === "cro" ? (
-              <details className="mt-3 rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_10%,white)] bg-[var(--surface-container-low)] px-3 py-2 text-sm text-[var(--on-surface)]/78">
-                <summary className="cursor-pointer font-semibold text-[var(--primary)]">Score formula and deductions</summary>
-                <p className="mt-2">
-                  Score formula: 100 - deductions. FAIL penalties = critical:20, high:10, medium:5, low:2. WARN = 50% of fail penalty.
-                </p>
-                <p className="mt-1 font-semibold">Total deductions: {croTotalDeduction}</p>
-                {croScoreDeductions.length > 0 ? (
-                  <ul className="mt-2 space-y-1">
-                    {croScoreDeductions.map((entry) => (
-                      <li key={`${entry.title}-${entry.priority}-${entry.status}`} className="text-xs">
-                        {entry.title} ({entry.priority.toUpperCase()} {entry.status.toUpperCase()}): -{entry.penalty}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-2 text-xs">No deductions applied.</p>
-                )}
-              </details>
-            ) : null}
-            <p className="mt-2 text-sm text-[var(--on-surface)]/70">
-              {failChecks.length > 0
-                ? `${failChecks.length} issue${failChecks.length > 1 ? "s are" : " is"} likely hurting ${
-                    auditType === "cro" ? "conversions" : "rankings"
-                  } right now.`
-                : `No fail-level issues detected. Strong ${auditType === "cro" ? "conversion" : "SEO"} baseline across checks.`}
-            </p>
-            <p className="mt-1 text-sm text-[var(--on-surface)]/65">{scoreContext.note}</p>
+            {audit.summary ? (
+              <p className="mt-3 text-sm text-[var(--on-surface)]/75 whitespace-pre-wrap">{audit.summary}</p>
+            ) : (
+              <p className="mt-3 text-sm text-[var(--on-surface)]/65">{scoreContext.note}</p>
+            )}
           </div>
         </div>
       </header>
 
-      {auditType === "cro" ? (
-        <section className="rounded-2xl border border-rose-200 bg-rose-50/60 p-5">
-          <h2 className="font-manrope text-lg font-extrabold text-rose-800">Critical Conversion Risks</h2>
-          {topCroRisks.length === 0 ? (
-            <p className="mt-2 text-sm text-rose-800/85">No critical conversion blockers detected.</p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {topCroRisks.map((risk) => (
-                <li key={risk.id} className="rounded-xl border border-rose-200 bg-white px-3 py-2">
-                  <p className="text-sm font-semibold text-rose-800">{risk.title}</p>
-                  <p className="mt-1 text-sm text-rose-900/85">{risk.recommendation ?? "Review this item immediately."}</p>
-                </li>
-              ))}
-              {hiddenCroRiskCount > 0 ? (
-                <li className="text-sm font-semibold text-rose-800/85">+{hiddenCroRiskCount} more high/critical fails below.</li>
-              ) : null}
-            </ul>
-          )}
-        </section>
-      ) : null}
-
-      <AuditTopicPanel
-        auditType={auditType}
-        targetKeyword={audit.targetKeyword}
-        checks={checksWithEffectivePriority.map((check) => ({
-          id: check.id,
-          key: check.key,
-          title: check.title,
-          status: check.status,
-          priority: check.priority,
-          details: check.details,
-          recommendation: check.recommendation,
-        }))}
+      <AuditSectionsPanel
+        onPageContent={audit.onPageContent}
+        techPerfContent={audit.techPerfContent}
+        authorityContent={audit.authorityContent}
       />
-
-      <section className="grid gap-6 lg:grid-cols-[1.25fr,1fr]">
-        <AuditCheckResults
-          checks={checksWithEffectivePriority.map((check) => ({
-            id: check.id,
-            key: check.key,
-            title: check.title,
-            status: check.status,
-            priority: check.priority,
-            details: check.details,
-            recommendation: check.recommendation,
-          }))}
-        />
-        <ReportMarkdownPanel
-          title="Executive Report (Full)"
-          description="Use this full report when sharing with your developer, SEO specialist, or agency."
-          shareAuditId={audit.id}
-          markdown={audit.reportMarkdown ?? audit.summary ?? "Report is being generated."}
-        />
-      </section>
     </section>
   );
 }

@@ -1,9 +1,8 @@
 import { AuditStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { sendAuditPublishedEmail } from "@/lib/audit-published-email";
-import { auditTypeFromKeyword } from "@/lib/audit-mode";
-import { validateUploadPayload } from "@/lib/admin-audit-upload";
 
 function unauthorized(reason: string) {
   return NextResponse.json({ ok: false, error: `Unauthorized: ${reason}` }, { status: 401 });
@@ -24,6 +23,17 @@ function constantTimeEqual(a: string, b: string) {
   }
   return mismatch === 0;
 }
+
+const headlessUploadSchema = z.object({
+  score: z.number().int().min(0).max(100).nullable().optional(),
+  summary: z.string().max(20000).nullable().optional(),
+  status: z.enum(["QUEUED", "RUNNING", "COMPLETED", "FAILED"]).optional(),
+  publish: z.boolean().optional(),
+  notifyUser: z.boolean().optional(),
+  onPageContent: z.string().max(50000).nullable().optional(),
+  techPerfContent: z.string().max(50000).nullable().optional(),
+  authorityContent: z.string().max(50000).nullable().optional(),
+});
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const expected = (process.env.ADMIN_UPLOAD_TOKEN ?? "").trim();
@@ -53,13 +63,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const mode = auditTypeFromKeyword(audit.targetKeyword);
-  const validation = validateUploadPayload(body, mode, { requireAllKeys: true });
-  if (!validation.ok) {
-    return NextResponse.json(validation, { status: 400 });
+  const parsed = headlessUploadSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { ok: false, error: "Invalid request", details: parsed.error.flatten() },
+      { status: 400 },
+    );
   }
-
-  const data = validation.payload;
+  const data = parsed.data;
 
   let nextStatus: AuditStatus;
   if (data.publish) {
@@ -70,38 +81,34 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     nextStatus = AuditStatus.RUNNING;
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    await tx.auditCheck.deleteMany({ where: { auditId: id } });
-    await tx.auditCheck.createMany({
-      data: data.checks.map((row) => ({
-        auditId: id,
-        key: row.key,
-        title: row.title,
-        status: row.status,
-        priority: row.priority,
-        details: row.details ?? null,
-        recommendation: row.recommendation ?? null,
-      })),
-    });
+  const normalizeText = (value: string | null | undefined) => {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    return value.trim().length === 0 ? null : value;
+  };
+  const onPageContent = normalizeText(data.onPageContent);
+  const techPerfContent = normalizeText(data.techPerfContent);
+  const authorityContent = normalizeText(data.authorityContent);
 
-    return tx.audit.update({
-      where: { id },
-      data: {
-        score: data.score ?? null,
-        summary: data.summary ?? null,
-        reportMarkdown: data.reportMarkdown ?? null,
-        status: nextStatus,
-        errorMessage: null,
-        completedAt: nextStatus === AuditStatus.COMPLETED ? new Date() : null,
-      },
-      select: {
-        id: true,
-        status: true,
-        completedAt: true,
-        targetUrl: true,
-        targetKeyword: true,
-      },
-    });
+  const updated = await prisma.audit.update({
+    where: { id },
+    data: {
+      score: data.score ?? null,
+      summary: data.summary ?? null,
+      status: nextStatus,
+      errorMessage: null,
+      completedAt: nextStatus === AuditStatus.COMPLETED ? new Date() : null,
+      ...(onPageContent !== undefined ? { onPageContent } : {}),
+      ...(techPerfContent !== undefined ? { techPerfContent } : {}),
+      ...(authorityContent !== undefined ? { authorityContent } : {}),
+    },
+    select: {
+      id: true,
+      status: true,
+      completedAt: true,
+      targetUrl: true,
+      targetKeyword: true,
+    },
   });
 
   let emailResult: Awaited<ReturnType<typeof sendAuditPublishedEmail>> | null = null;
@@ -117,7 +124,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   return NextResponse.json({
     ok: true,
     audit: updated,
-    unknownKeys: validation.unknownKeys,
     email: emailResult,
   });
 }

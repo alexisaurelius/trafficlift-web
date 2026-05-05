@@ -25,6 +25,10 @@ const updateAuditSchema = z.object({
   notifyUser: z.boolean().optional().default(true),
   /** When set, replaces all `AuditCheck` rows for this audit (manual upload). Omit to leave checks unchanged. */
   checks: z.array(manualCheckRowSchema).optional(),
+  /** Text-block uploads. Each block contains `**Item: ...**` entries with Current state / Analysis / Status. */
+  onPageContent: z.string().max(50000).optional().nullable(),
+  techPerfContent: z.string().max(50000).optional().nullable(),
+  authorityContent: z.string().max(50000).optional().nullable(),
 });
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -81,6 +85,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       nextStatus = AuditStatus.COMPLETED;
     }
 
+    // Empty strings should clear the column rather than store whitespace.
+    const normalizeText = (value: string | null | undefined) => {
+      if (value === undefined) return undefined;
+      if (value === null) return null;
+      return value.trim().length === 0 ? null : value;
+    };
+    const onPageContent = normalizeText(data.onPageContent);
+    const techPerfContent = normalizeText(data.techPerfContent);
+    const authorityContent = normalizeText(data.authorityContent);
+
     const updated = await prisma.$transaction(async (tx) => {
       if (data.checks) {
         await tx.auditCheck.deleteMany({ where: { auditId: id } });
@@ -108,6 +122,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           status: nextStatus,
           errorMessage: data.errorMessage ?? null,
           completedAt: nextStatus === AuditStatus.COMPLETED ? new Date() : null,
+          ...(onPageContent !== undefined ? { onPageContent } : {}),
+          ...(techPerfContent !== undefined ? { techPerfContent } : {}),
+          ...(authorityContent !== undefined ? { authorityContent } : {}),
         },
         select: {
           id: true,
