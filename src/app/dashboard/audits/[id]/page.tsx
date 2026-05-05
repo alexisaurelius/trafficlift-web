@@ -3,16 +3,10 @@ import { notFound } from "next/navigation";
 import { requireUserRecord } from "@/lib/auth-user";
 import { prisma } from "@/lib/prisma";
 import { AuditSectionsPanel } from "@/components/audit-sections-panel";
+import { AuditSummaryCard } from "@/components/audit-summary-card";
 import { ShareAuditButton } from "@/components/share-audit-button";
 import { auditTypeFromKeyword } from "@/lib/audit-mode";
 import { countStatuses, parseAuditSections } from "@/lib/audit-text-sections";
-
-function getScoreContext(score: number) {
-  if (score >= 85) return { label: "Excellent", note: "Strong baseline with minor refinements needed." };
-  if (score >= 70) return { label: "Good", note: "Good performance, but important opportunities remain." };
-  if (score >= 55) return { label: "Needs Work", note: "Several issues are likely limiting results." };
-  return { label: "Weak", note: "Major issues are likely suppressing visibility." };
-}
 
 export default async function AuditDetailsPage({
   params,
@@ -36,10 +30,6 @@ export default async function AuditDetailsPage({
     authorityContent: audit.authorityContent,
   });
   const counts = countStatuses(parsed);
-
-  const score = audit.score ?? 0;
-  const scoreContext = getScoreContext(score);
-  const scoreColor = score >= 80 ? "#22c55e" : score >= 60 ? "#f59e0b" : "#ef4444";
   const auditedOn = audit.completedAt ?? audit.updatedAt ?? audit.createdAt;
   const hasContent = counts.total > 0;
 
@@ -80,63 +70,41 @@ export default async function AuditDetailsPage({
             </Link>
           </div>
         </div>
-        <div className="mt-3 grid gap-6 lg:grid-cols-[180px_minmax(0,1fr)] lg:items-center">
-          <div className="mx-auto">
-            <div
-              className="relative h-40 w-40 rounded-full"
-              style={{
-                background: `conic-gradient(${scoreColor} ${Math.round((score / 100) * 360)}deg, #e3eaef 0deg)`,
-              }}
-            >
-              <div className="absolute inset-[12px] flex flex-col items-center justify-center rounded-full bg-[var(--surface-container-lowest)]">
-                <p className="font-manrope text-4xl font-extrabold text-[var(--primary)]">{score}</p>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--on-surface)]/58">
-                  {auditType === "cro" ? "CRO Score" : "SEO Score"}
-                </p>
-                <p className="mt-0.5 text-[11px] font-semibold text-[var(--on-surface)]/68">{scoreContext.label}</p>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <h1 className="font-manrope text-3xl font-extrabold tracking-tight text-[var(--primary)]">Audit Report</h1>
-            <p className="mt-2 text-sm text-[var(--on-surface)]/70">{audit.targetUrl}</p>
-            <p className="mt-1 text-sm text-[var(--on-surface)]/70">
-              Audited on:{" "}
-              <span className="font-semibold">
-                {new Intl.DateTimeFormat("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                }).format(auditedOn)}
+        <div className="mt-4">
+          <h1 className="font-manrope text-3xl font-extrabold tracking-tight text-[var(--primary)]">Audit Report</h1>
+          <p className="mt-2 text-sm text-[var(--on-surface)]/70 break-all">{audit.targetUrl}</p>
+          <p className="mt-1 text-sm text-[var(--on-surface)]/70">
+            Audited on:{" "}
+            <span className="font-semibold">
+              {new Intl.DateTimeFormat("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              }).format(auditedOn)}
+            </span>
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-[var(--surface-container-low)] px-3 py-1 text-xs font-bold uppercase tracking-wide">
+              {audit.status}
+            </span>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-700">
+              {counts.good} Good
+            </span>
+            <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-700">
+              {counts.needsImprovement} Needs Improvement
+            </span>
+            {counts.critical > 0 ? (
+              <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-700">
+                {counts.critical} Critical
               </span>
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-[var(--surface-container-low)] px-3 py-1 text-xs font-bold uppercase tracking-wide">
-                {audit.status}
-              </span>
-              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-700">
-                {counts.good} Good
-              </span>
-              <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-700">
-                {counts.needsImprovement} Needs Improvement
-              </span>
-              {counts.critical > 0 ? (
-                <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-700">
-                  {counts.critical} Critical
-                </span>
-              ) : null}
-            </div>
-            {audit.summary ? (
-              <p className="mt-3 text-sm text-[var(--on-surface)]/75 whitespace-pre-wrap">{audit.summary}</p>
-            ) : (
-              <p className="mt-3 text-sm text-[var(--on-surface)]/65">{scoreContext.note}</p>
-            )}
+            ) : null}
           </div>
         </div>
       </header>
+
+      <AuditSummaryCard summary={audit.summary} />
 
       <AuditSectionsPanel
         onPageContent={audit.onPageContent}

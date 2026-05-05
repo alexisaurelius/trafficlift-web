@@ -41,7 +41,6 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
   const [selectedAuditId, setSelectedAuditId] = useState(initialSelectedId ?? initialAudits[0]?.id ?? "");
   const [sections, setSections] = useState<SectionState>({ ...EMPTY_SECTIONS });
   const [summary, setSummary] = useState("");
-  const [score, setScore] = useState("");
   const [status, setStatus] = useState<AdminAuditItem["status"]>("COMPLETED");
   const [notifyUser, setNotifyUser] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -130,7 +129,6 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
           id: string;
           status: AdminAuditItem["status"];
           summary: string | null;
-          score: number | null;
           onPageContent: string | null;
           techPerfContent: string | null;
           authorityContent: string | null;
@@ -144,7 +142,6 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
       if (data.audit) {
         setStatus(data.audit.status);
         setSummary(data.audit.summary ?? "");
-        setScore(data.audit.score === null || data.audit.score === undefined ? "" : String(data.audit.score));
         setSections({
           "on-page": data.audit.onPageContent ?? "",
           "tech-perf": data.audit.techPerfContent ?? "",
@@ -219,7 +216,6 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
   function buildBasePayload() {
     return {
       summary: summary.trim() ? summary : null,
-      score: score.trim() === "" ? null : Number(score),
       status,
       onPageContent: sections["on-page"],
       techPerfContent: sections["tech-perf"],
@@ -335,7 +331,7 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
             </p>
           ) : null}
           <div className="mt-4 space-y-3">
-            <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr]">
+            <div className="grid gap-3 md:grid-cols-[2fr_1fr]">
               <label className="block">
                 <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Audit ID</span>
                 <input
@@ -360,15 +356,6 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
                   <option value="QUEUED">QUEUED</option>
                   <option value="FAILED">FAILED</option>
                 </select>
-              </label>
-              <label className="block">
-                <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Score (optional)</span>
-                <input
-                  value={score}
-                  onChange={(e) => setScore(e.target.value)}
-                  placeholder="0-100"
-                  className="mt-1 w-full rounded-xl border border-[color:color-mix(in_oklab,var(--primary)_12%,white)] bg-[var(--surface)] px-3 py-2 text-sm"
-                />
               </label>
             </div>
             {isLoadingAudit ? <p className="text-xs text-[var(--on-surface)]/60">Loading audit fields…</p> : null}

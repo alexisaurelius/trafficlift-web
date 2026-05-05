@@ -1,0 +1,9 @@
+Move summary into its own card and remove subjective SEO score
+
+- Drop the score donut from the audit details and shared report headers;
+  the manual audit score is too subjective to surface as a headline number.
+- Remove the Score input from the admin upload form and stop sending score.
+- Add AuditSummaryCard: standalone card with a sparkles header. Detects
+  numbered-list summaries (1. ... / 2. ...) and renders them as a clean
+  ordered list with badges; falls back to a paragraph for free-form text.
+- Simplify the audit header now that the score column is gone.

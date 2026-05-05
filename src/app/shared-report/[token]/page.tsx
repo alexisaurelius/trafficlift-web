@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { AuditSectionsPanel } from "@/components/audit-sections-panel";
+import { AuditSummaryCard } from "@/components/audit-summary-card";
 import { auditTypeFromKeyword } from "@/lib/audit-mode";
 import { countStatuses, parseAuditSections } from "@/lib/audit-text-sections";
 
@@ -30,10 +31,7 @@ export default async function SharedReportPage({
         <h1 className="mt-3 font-manrope text-3xl font-extrabold tracking-tight text-[var(--primary)]">
           Audit Report
         </h1>
-        <p className="mt-2 text-sm text-[var(--on-surface)]/70">{audit.targetUrl}</p>
-        <p className="mt-1 text-sm text-[var(--on-surface)]/65">
-          Score: <span className="font-semibold">{audit.score ?? "--"}/100</span>
-        </p>
+        <p className="mt-2 text-sm text-[var(--on-surface)]/70 break-all">{audit.targetUrl}</p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-700">
             {counts.good} Good
@@ -47,10 +45,9 @@ export default async function SharedReportPage({
             </span>
           ) : null}
         </div>
-        {audit.summary ? (
-          <p className="mt-3 text-sm text-[var(--on-surface)]/75 whitespace-pre-wrap">{audit.summary}</p>
-        ) : null}
       </header>
+
+      <AuditSummaryCard summary={audit.summary} />
 
       <AuditSectionsPanel
         onPageContent={audit.onPageContent}
