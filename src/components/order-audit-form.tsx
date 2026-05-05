@@ -95,7 +95,8 @@ export function OrderAuditForm({ onCreated, auditType = "seo" }: OrderAuditFormP
             onChange={(e) => setTargetKeyword(e.target.value)}
           />
           <p className="text-xs text-[var(--on-surface)]/60">
-            Add up to 3 interchangeable keyword variants you want to rank for
+            Add up to 3 interchangeable keyword variants you want to rank for.{" "}
+            <strong className="font-bold text-[var(--on-surface)]/80">Important:</strong> separate keywords with a comma.
           </p>
         </div>
       ) : null}
