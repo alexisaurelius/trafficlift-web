@@ -195,12 +195,12 @@ export function AdminAuditsPanel({ audits: initialAudits = [], initialSelectedId
         setMessage(`Save failed: ${message}`);
         return;
       }
-      const email = parsed?.email as { sent?: boolean; reason?: string } | null | undefined;
+      const email = parsed?.email as { sent?: boolean; reason?: string; detail?: string } | null | undefined;
       const emailNote =
         email && typeof email === "object" && "sent" in email
           ? email.sent
             ? " Customer email sent."
-            : ` Customer email skipped (${email.reason ?? "unknown"}).`
+            : ` Customer email NOT sent (${email.detail ?? email.reason ?? "unknown"}).`
           : "";
       setMessage(`Saved.${emailNote}`);
       await refreshList();

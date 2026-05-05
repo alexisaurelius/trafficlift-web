@@ -13,7 +13,7 @@ export async function sendResendEmail(input: SendEmailInput) {
 
   if (!resendApiKey) {
     console.warn("[resend-email] Missing RESEND_API_KEY; email skipped", { subject: input.subject });
-    return { sent: false as const, reason: "missing-config" as const };
+    return { sent: false as const, reason: "missing-config" as const, detail: "RESEND_API_KEY is not configured" };
   }
 
   const response = await fetch("https://api.resend.com/emails", {
@@ -32,12 +32,21 @@ export async function sendResendEmail(input: SendEmailInput) {
 
   if (!response.ok) {
     const failureText = await response.text();
+    let detail = failureText;
+    try {
+      const parsed = JSON.parse(failureText) as { message?: string };
+      if (typeof parsed.message === "string" && parsed.message.trim()) {
+        detail = parsed.message.trim();
+      }
+    } catch {
+      // Keep raw provider response when body is not JSON.
+    }
     console.error("[resend-email] Failed to send email", {
       status: response.status,
       body: failureText,
       subject: input.subject,
     });
-    return { sent: false as const, reason: "provider-error" as const };
+    return { sent: false as const, reason: "provider-error" as const, detail };
   }
 
   return { sent: true as const };
