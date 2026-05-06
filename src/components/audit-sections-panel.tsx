@@ -40,6 +40,7 @@ function statusPillLabel(status: AuditItemStatus) {
 
 /** Full text for the Status row: raw from the audit when present, else canonical. */
 function statusDetailText(status: AuditItemStatus, raw: string) {
+  if (status === "good") return "Good, no action needed.";
   const trimmed = raw.trim();
   if (trimmed) return trimmed;
   return statusPillLabel(status);
