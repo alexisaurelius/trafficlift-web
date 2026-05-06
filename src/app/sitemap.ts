@@ -8,5 +8,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     {
       url: "https://www.trafficlift.ai/cro-audit/",
     },
+    {
+      url: "https://www.trafficlift.ai/privacy-policy-terms-of-use/",
+    },
   ];
 }

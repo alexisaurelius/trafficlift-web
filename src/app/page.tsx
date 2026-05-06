@@ -610,7 +610,10 @@ export default async function Home() {
         </section>
 
         <footer className="mt-10 pb-8 text-center text-xs text-[var(--on-surface)]/55">
-          © {new Date().getFullYear()} TrafficLift. All rights reserved.
+          © {new Date().getFullYear()} TrafficLift. All rights reserved. ·{" "}
+          <Link href="/privacy-policy-terms-of-use/" className="underline underline-offset-2 hover:text-[var(--primary)]">
+            Privacy &amp; Terms
+          </Link>
         </footer>
       </main>
     </div>
