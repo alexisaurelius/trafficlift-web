@@ -261,8 +261,8 @@ export default async function CroAuditPage() {
           <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             {[
               { name: "One-time", price: "$14.99", suffix: "/one-time", cta: "Select Basic", dark: false, perks: ["One full CRO audit of your submitted page", "All audit elements included", "Audits are stored permanently"] },
-              { name: "Starter plan", price: "$29.99", suffix: "/mo", cta: "Select Starter", badge: "Popular", dark: true, perks: ["3 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently"] },
-              { name: "Standard Plan", price: "$89.99", suffix: "/mo", cta: "Select Standard", dark: false, perks: ["10 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently", "Scheduled re-audits", "White-label reports"] },
+              { name: "Starter plan", price: "$29.99", suffix: "/mo", cta: "Select Starter", badge: "Popular", dark: true, perks: ["3 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently", "Scheduled re-audits", "White-label reports"] },
+              { name: "Standard Plan", price: "$79.99", suffix: "/mo", cta: "Select Standard", dark: false, perks: ["10 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently", "Scheduled re-audits", "White-label reports"] },
               { name: "Pro Plan", price: "$129.99", suffix: "/mo", cta: "Select Pro", dark: false, perks: ["20 audits included", "Full CRO audit of your submitted pages", "All audit elements included", "Audits are stored permanently", "Scheduled re-audits", "White-label reports"] },
             ].map((plan) => (
               <article
