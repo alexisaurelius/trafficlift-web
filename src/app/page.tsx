@@ -566,15 +566,19 @@ export default async function Home() {
             {[
               {
                 q: "How long does the audit take?",
-                a: "Your audit is reviewed by SEO specialists and delivered within 24 hours.",
+                a: "The audits are delivered within 24 hours (often sooner) from the moment they are requested.",
               },
               {
                 q: "Will you fix the issues?",
-                a: "We identify and explain the issues found during the audit and provide clear recommendations on how to address them.",
+                a: "We identify and explain the issues found during the audit and provide clear recommendations on how to address them. If you need assistance with SEO, please contact us at contact@trafficlift.ai",
               },
               {
                 q: "What data do I need to provide?",
-                a: "For an SEO audit, you only need to provide the URL of the page you want to increase traffic to and the keyword you want to rank for.",
+                a: "For an SEO audit, you need to provide the URL of the page you want to audit, along with the keyword(s) you want to rank for.",
+              },
+              {
+                q: "How can I cancel my subscription?",
+                a: "To cancel your subscription, go to the Billing section in your dashboard and select the cancel subscription option.",
               },
               {
                 q: "How will I receive my audit?",
