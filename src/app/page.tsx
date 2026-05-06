@@ -575,7 +575,7 @@ export default async function Home() {
               },
               {
                 q: "Will you fix the issues?",
-                a: "We identify and explain the issues found during the audit and provide clear recommendations on how to address them. If you need assistance with SEO, please contact us at contact@trafficlift.ai",
+                a: "We identify and explain the issues found during the audit and provide clear recommendations on how to address them. If you need assistance implementing the SEO plan, please contact us at contact@trafficlift.ai",
               },
               {
                 q: "What data do I need to provide?",
