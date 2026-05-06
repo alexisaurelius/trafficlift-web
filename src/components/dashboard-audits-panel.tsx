@@ -146,7 +146,7 @@ export function DashboardAuditsPanel({
                         <p
                           className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusColor(audit.status)}`}
                         >
-                          {isUnlockReady && audit.status !== "FAILED" ? "READY" : "IN REVIEW"}
+                          {isUnlockReady && audit.status !== "FAILED" ? "READY" : "IN PROGRESS"}
                         </p>
                         <h3 className="mt-2 font-semibold">{targetKeywordList}</h3>
                         <p className="mt-1 truncate text-sm text-[var(--on-surface)]/70">{audit.targetUrl}</p>
@@ -171,7 +171,7 @@ export function DashboardAuditsPanel({
                     <div className="mt-1 flex items-center justify-between gap-3">
                       <p className="text-xs text-[var(--on-surface)]/65">
                         {isActive
-                          ? "Review in progress. Unlocks within 24h. An email notification will be sent when complete."
+                          ? "Audit in progress. Unlocks within 24h. An email notification will be sent when complete."
                           : audit.status === "FAILED"
                             ? (audit.errorMessage ?? "Audit failed.")
                             : "Ready to open your audit."}
