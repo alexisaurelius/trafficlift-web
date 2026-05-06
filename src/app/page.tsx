@@ -345,7 +345,6 @@ export default async function Home() {
                   "All audit elements included",
                   "Audits are stored permanently",
                   "Scheduled re-audits",
-                  "White-label reports",
                   "Free Backlink Analysis and Strategy",
                 ],
               },
