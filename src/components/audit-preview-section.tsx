@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Cog, FileText, Gauge, ShieldCheck } from "lucide-react";
+import { Cog, FileText, ShieldCheck } from "lucide-react";
 
-type AuditTab = "on-page" | "technical" | "performance" | "authority";
+type AuditTab = "on-page" | "technical-perf" | "authority";
 
 type TabConfig = {
   id: AuditTab;
@@ -41,38 +41,21 @@ const TABS: TabConfig[] = [
     bottomRightBody: "/services/seo-audit-report",
   },
   {
-    id: "technical",
-    label: "Technical",
+    id: "technical-perf",
+    label: "Technical & Performance",
     icon: Cog,
     topLeftTitle: "CORE WEB VITALS",
-    topLeftBody: "LCP: 2.8s • CLS: 0.07 • INP: 230ms",
-    topLeftMeta: "mobile profile",
-    topRightTitle: "CRAWL READINESS",
+    topLeftBody: "LCP: 2.3s • CLS: 0.06 • INP: 205ms",
+    topLeftMeta: "technical + performance snapshot",
+    topRightTitle: "CRAWL + RENDER READINESS",
     topRightBody:
-      "Sitemap detected, robots directives valid, but one canonical mismatch needs correction.",
-    progress: 71,
-    bottomLeftTitle: "STRUCTURED DATA",
-    bottomLeftBody: "1 JSON-LD block invalid",
-    bottomLeftMeta: "Critical fix",
-    bottomRightTitle: "INDEXING STATUS",
-    bottomRightBody: "8 pages indexable, 2 blocked intentionally",
-  },
-  {
-    id: "performance",
-    label: "Performance",
-    icon: Gauge,
-    topLeftTitle: "CORE WEB VITALS",
-    topLeftBody: "LCP: 2.1s • CLS: 0.05 • INP: 190ms",
-    topLeftMeta: "mobile + real-user focus",
-    topRightTitle: "RENDER EFFICIENCY",
-    topRightBody:
-      "Main thread blocking is reduced, but image payload and script hydration still leave room for faster interactions.",
-    progress: 76,
-    bottomLeftTitle: "IMAGE DELIVERY",
-    bottomLeftBody: "Hero image optimized, but several below-fold assets remain uncompressed",
-    bottomLeftMeta: "Medium priority",
-    bottomRightTitle: "LOAD IMPROVEMENTS",
-    bottomRightBody: "Preload the primary visual and lazy-load non-critical media to lift speed scores",
+      "Sitemap and robots are valid, but canonical consistency plus render-heavy assets still need cleanup.",
+    progress: 74,
+    bottomLeftTitle: "STRUCTURED DATA + IMAGES",
+    bottomLeftBody: "1 JSON-LD block invalid and several below-fold assets remain uncompressed",
+    bottomLeftMeta: "Critical + medium fixes",
+    bottomRightTitle: "INDEXING + LOAD IMPROVEMENTS",
+    bottomRightBody: "Fix schema/canonical signals, then preload key visuals and lazy-load non-critical media",
   },
   {
     id: "authority",
@@ -100,17 +83,13 @@ const CHIP_SETS: Record<AuditTab, Array<{ label: string; tone: "red" | "gray" | 
     { label: "Image alt missing", tone: "gray" },
     { label: "Schema valid", tone: "green" },
   ],
-  technical: [
+  "technical-perf": [
     { label: "JSON-LD invalid", tone: "red" },
     { label: "LCP needs work", tone: "gray" },
     { label: "Canonical mismatch", tone: "gray" },
     { label: "Robots valid", tone: "green" },
-  ],
-  performance: [
     { label: "Image payload high", tone: "red" },
-    { label: "INP improving", tone: "gray" },
     { label: "Preload tuning", tone: "gray" },
-    { label: "LCP in range", tone: "green" },
   ],
   authority: [
     { label: "Trust signals mixed", tone: "red" },
