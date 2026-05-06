@@ -171,11 +171,11 @@ export default async function Home() {
               </p>
               <ul className="mt-6 space-y-4 text-[16px] text-[var(--on-surface)]/82">
                 {[
-                  "Expensive audits ($500+)",
-                  "Longer delivery times (2-4 weeks)",
+                  "Expensive ($1000+)",
+                  "Longer delivery times (1-4 weeks)",
                   "Long onboarding flows",
                   "Reports may be complex",
-                  "Frequently upsell services",
+                  "Frequently service upsells",
                 ].map((item) => (
                   <li key={item} className="flex items-start gap-3">
                     <span className="mt-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#b91c1c] text-xs font-black text-white">
