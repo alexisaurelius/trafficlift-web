@@ -334,7 +334,7 @@ export default async function Home() {
               },
               {
                 name: "Starter plan",
-                price: "$39.99",
+                price: "$29.99",
                 suffix: "/mo",
                 cta: "Select Starter",
                 badge: "Popular",
@@ -357,6 +357,8 @@ export default async function Home() {
                   "Full audit of your submitted pages",
                   "All audit elements included",
                   "Audits are stored permanently",
+                  "Scheduled re-audits",
+                  "White-label reports",
                 ],
               },
               {
@@ -370,6 +372,8 @@ export default async function Home() {
                   "Full audit of your submitted pages",
                   "All audit elements included",
                   "Audits are stored permanently",
+                  "Scheduled re-audits",
+                  "White-label reports",
                 ],
               },
             ].map((plan) => (
