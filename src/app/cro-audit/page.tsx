@@ -368,7 +368,7 @@ export default async function CroAuditPage() {
         <footer className="mt-10 pb-8 text-center text-xs text-[var(--on-surface)]/55">
           © {new Date().getFullYear()} TrafficLift. All rights reserved. ·{" "}
           <Link href="/privacy-policy-terms-of-use/" className="underline underline-offset-2 hover:text-[var(--primary)]">
-            Privacy &amp; Terms
+            Privacy Policy and Terms of Use
           </Link>
         </footer>
       </main>
